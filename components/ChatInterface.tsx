@@ -35,26 +35,31 @@ export const ChatInterface = ({ chatHistory, isLoading, aiThought, onPromptSubmi
     }
   }, [prompt]);
 
-  const { status, tooltip } = useMemo(() => {
+  const { status, tooltip, percentage } = useMemo(() => {
     const totalChars = chatHistory.reduce((acc, msg) => acc + (msg.content?.length || 0), 0);
     const YELLOW_THRESHOLD = 15000;
     const RED_THRESHOLD = 25000;
 
+    const percentage = Math.min(100, Math.round((totalChars / RED_THRESHOLD) * 100));
+
     if (totalChars > RED_THRESHOLD) {
       return {
         status: 'red',
-        tooltip: "Warning: The conversation is very long, and the AI may have lost context from earlier messages. It's highly recommended to save a session summary to continue effectively.",
+        tooltip: `Context health: ${percentage}%. Warning: The conversation is very long, and the AI may have lost context from earlier messages. It's highly recommended to save a session summary to continue effectively.`,
+        percentage,
       };
     }
     if (totalChars > YELLOW_THRESHOLD) {
       return {
         status: 'yellow',
-        tooltip: "The conversation is getting long. The AI might start to lose context soon. Consider saving a session summary to keep it focused.",
+        tooltip: `Context health: ${percentage}%. The conversation is getting long. The AI might start to lose context soon. Consider saving a session summary to keep it focused.`,
+        percentage,
       };
     }
     return {
       status: 'green',
-      tooltip: 'AI context is healthy.',
+      tooltip: `Context health: ${percentage}%. Context is healthy.`,
+      percentage,
     };
   }, [chatHistory]);
 
@@ -62,6 +67,12 @@ export const ChatInterface = ({ chatHistory, isLoading, aiThought, onPromptSubmi
     green: 'bg-green-500',
     yellow: 'bg-yellow-400',
     red: 'bg-red-500',
+  }[status];
+
+  const textColor = {
+    green: 'text-green-400',
+    yellow: 'text-yellow-400',
+    red: 'text-red-500',
   }[status];
 
   const indicatorPulse = status === 'yellow' || status === 'red' ? 'animate-pulse' : '';
@@ -151,11 +162,18 @@ export const ChatInterface = ({ chatHistory, isLoading, aiThought, onPromptSubmi
       <div className="p-4 border-b border-gray-700/50 flex justify-between items-center flex-shrink-0">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-semibold text-gray-200">Chat</h2>
-          <span
+          <div
+            className="flex items-center gap-2"
             title={tooltip}
-            className={`w-2.5 h-2.5 rounded-full transition-colors ${indicatorColor} ${indicatorPulse}`}
-            aria-label={`Context health: ${status}`}
-          ></span>
+            aria-label={`Context health: ${status}, ${percentage}% full`}
+          >
+            <span
+              className={`w-2.5 h-2.5 rounded-full transition-colors ${indicatorColor} ${indicatorPulse}`}
+            ></span>
+            <span className={`text-xs font-mono font-semibold ${textColor}`}>
+              {percentage}%
+            </span>
+          </div>
         </div>
         <button
           onClick={handleExportChat}
