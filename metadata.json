@@ -1,0 +1,5 @@
+{
+  "name": "Gemini Cloud CLI",
+  "description": "An AI-powered command-line interface in your browser. Upload your project files and interact with them using natural language prompts, powered by Gemini.",
+  "requestFramePermissions": []
+}
