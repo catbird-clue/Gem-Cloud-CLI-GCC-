@@ -8,6 +8,8 @@ interface FileExplorerProps {
   model: GeminiModel;
   isSummarizing: boolean;
   sessionSummary: string;
+  workspaces: string[];
+  currentWorkspace: string;
   onFileUpload: (files: FileList | null) => void;
   onClearFiles: () => void;
   onOpenMemoryEditor: () => void;
@@ -16,6 +18,9 @@ interface FileExplorerProps {
   onViewFile: (file: UploadedFile) => void;
   onAddChatMessage: (message: string) => void;
   onAcknowledgeFileChange: (filePath: string) => void;
+  onSaveWorkspace: () => void;
+  onLoadWorkspace: (name: string) => void;
+  onDeleteWorkspace: (name: string) => void;
 }
 
 interface FileTreeProps {
@@ -148,21 +153,10 @@ const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, level = 0 }
   );
 };
 
-export const FileExplorer = ({ files, modifiedFiles, model, isSummarizing, sessionSummary, onFileUpload, onClearFiles, onOpenMemoryEditor, onOpenSummaryViewer, onSaveSessionSummary, onViewFile, onAddChatMessage, onAcknowledgeFileChange }: FileExplorerProps): React.ReactElement => {
+export const FileExplorer = ({ files, modifiedFiles, model, isSummarizing, sessionSummary, onFileUpload, onClearFiles, onOpenMemoryEditor, onOpenSummaryViewer, onSaveSessionSummary, onViewFile, onAddChatMessage, onAcknowledgeFileChange, workspaces, currentWorkspace, onSaveWorkspace, onLoadWorkspace, onDeleteWorkspace }: FileExplorerProps): React.ReactElement => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
-  const confirmTimeoutRef = useRef<number | null>(null);
   const fileTree = useMemo(() => buildFileTree(files || []), [files]);
-
-  useEffect(() => {
-    // Clean up timeout if component unmounts
-    return () => {
-      if (confirmTimeoutRef.current) {
-        clearTimeout(confirmTimeoutRef.current);
-      }
-    };
-  }, []);
 
   const handleButtonClick = () => {
     inputRef.current?.click();
@@ -210,34 +204,9 @@ export const FileExplorer = ({ files, modifiedFiles, model, isSummarizing, sessi
     onAcknowledgeFileChange(file.path);
   };
 
-  const handleInitiateClear = () => {
-    setIsConfirmingDelete(true);
-    confirmTimeoutRef.current = window.setTimeout(() => {
-      setIsConfirmingDelete(false);
-    }, 5000); // 5 seconds to confirm
-  };
-  
-  const handleConfirmClear = () => {
-    if (confirmTimeoutRef.current) {
-      clearTimeout(confirmTimeoutRef.current);
-      confirmTimeoutRef.current = null;
-    }
-    // Immediately hide the confirmation buttons for a better user experience,
-    // even if the page reload (triggered by onClearFiles) is slow or fails.
-    setIsConfirmingDelete(false);
-    onClearFiles();
-  };
-  
-  const handleCancelClear = () => {
-    if (confirmTimeoutRef.current) {
-      clearTimeout(confirmTimeoutRef.current);
-      confirmTimeoutRef.current = null;
-    }
-    setIsConfirmingDelete(false);
-  };
-
   const hasFiles = files.length > 0;
   const hasSummary = !!sessionSummary;
+  const isWorkspaceSelected = currentWorkspace !== 'Current Session';
 
   return (
     <div 
@@ -276,38 +245,46 @@ export const FileExplorer = ({ files, modifiedFiles, model, isSummarizing, sessi
             >
               <MemoryIcon className="w-5 h-5" />
             </button>
-            {isConfirmingDelete ? (
-              <div className="flex items-center rounded-md overflow-hidden h-9">
-                <button 
-                  onClick={handleConfirmClear}
-                  className="px-2 h-full bg-red-600 hover:bg-red-500 text-white font-semibold text-xs transition-colors flex items-center"
-                  aria-label="Confirm clear project"
-                  title="Permanently delete all files"
-                >
-                  Confirm
-                </button>
-                <button 
-                  onClick={handleCancelClear}
-                  className="px-2 h-full bg-gray-600 hover:bg-gray-500 text-white font-semibold text-xs transition-colors flex items-center"
-                  aria-label="Cancel clear project"
-                  title="Cancel"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={handleInitiateClear}
-                disabled={!hasFiles}
-                className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title={hasFiles ? `Clear all project files` : "No project files to clear"}
-                aria-label="Clear project files"
-              >
-                <TrashIcon className="w-5 h-5" />
-              </button>
-            )}
           </div>
         </div>
+        
+        <div className="space-y-1">
+            <span className="block text-xs font-medium text-gray-400">
+                Workspace
+            </span>
+            <div className="flex items-center space-x-2">
+                <select
+                    value={currentWorkspace}
+                    onChange={(e) => onLoadWorkspace(e.target.value)}
+                    className="w-full bg-gray-700/50 border border-gray-600/50 text-gray-300 text-sm rounded-md p-2 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    aria-label="Select a workspace"
+                >
+                    <option value="Current Session">Current Session</option>
+                    {workspaces.map(name => (
+                        <option key={name} value={name}>{name}</option>
+                    ))}
+                </select>
+                <button
+                  onClick={onSaveWorkspace}
+                  disabled={!hasFiles}
+                  className="p-2 text-gray-400 hover:text-indigo-400 hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                  title={hasFiles ? "Save current files as a workspace" : "Upload files to save a workspace"}
+                  aria-label="Save workspace"
+                >
+                  <SaveIcon className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => onDeleteWorkspace(currentWorkspace)}
+                  disabled={!isWorkspaceSelected}
+                  className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                  title={isWorkspaceSelected ? `Delete workspace "${currentWorkspace}"` : "Select a workspace to delete"}
+                  aria-label="Delete workspace"
+                >
+                  <TrashIcon className="w-5 h-5" />
+                </button>
+            </div>
+        </div>
+        
         <div className="space-y-1">
           <span className="block text-xs font-medium text-gray-400">
             AI Model
@@ -324,7 +301,7 @@ export const FileExplorer = ({ files, modifiedFiles, model, isSummarizing, sessi
           <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 p-4">
             <UploadIcon className="w-12 h-12 mb-4" />
             <p className="text-sm">
-              Upload a project folder to get started.
+              Upload a project folder or load a workspace to get started.
             </p>
           </div>
         )}

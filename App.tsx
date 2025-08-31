@@ -7,6 +7,7 @@ import { SessionSummaryViewer } from './components/SessionSummaryViewer';
 import type { UploadedFile, ChatMessage, FileChange, ProposedChange, GeminiModel } from './types';
 import { AVAILABLE_MODELS } from './types';
 import { streamChatResponse, summarizeSession } from './services/geminiService';
+import { saveWorkspace, getWorkspace, getAllWorkspaceNames, deleteWorkspace } from './services/dbService';
 
 const MAX_HISTORY_LENGTH = 20; // Keep the last 20 file states
 
@@ -24,11 +25,31 @@ export default function App(): React.ReactElement {
   const [isSummaryViewerOpen, setIsSummaryViewerOpen] = useState(false);
   const [viewingFile, setViewingFile] = useState<UploadedFile | null>(null);
   const [aiThought, setAiThought] = useState<string | null>(null);
+  const [workspaces, setWorkspaces] = useState<string[]>([]);
+  const [currentWorkspace, setCurrentWorkspace] = useState<string>('Current Session');
   const stopGenerationRef = useRef(false);
+  
+  // Effect to load workspaces on mount
+  useEffect(() => {
+    const loadWorkspaces = async () => {
+      try {
+        const names = await getAllWorkspaceNames();
+        setWorkspaces(names.sort());
+      } catch (error) {
+        console.error("Failed to load workspaces:", error);
+        setChatHistory(prev => [...prev, {
+          role: 'model',
+          content: '',
+          error: 'Could not load saved workspaces from the browser database.'
+        }]);
+      }
+    };
+    loadWorkspaces();
+  }, []);
 
   // Effect to load initial welcome message
   useEffect(() => {
-    const welcomeMessage = `Welcome to Gemini Cloud CLI! Upload your project folder using the button on the left to get started. You can then ask me to help you with your code.`;
+    const welcomeMessage = `Welcome to Gemini Cloud CLI! Upload your project folder using the button on the left to get started. You can also save sets of files as a "workspace" for quick access later.`;
      setChatHistory([{
         role: 'model',
         content: welcomeMessage
@@ -48,15 +69,16 @@ export default function App(): React.ReactElement {
 
 
   const handleClearFiles = () => {
-    if (files.length === 0) return;
+    if (files.length === 0 && currentWorkspace === 'Current Session') return;
     setFiles([]);
     setModifiedFiles({});
     setFileHistory([]);
     setSessionSummary('');
     setAiMemory('');
+    setCurrentWorkspace('Current Session');
     setChatHistory([{
         role: 'model',
-        content: `Project files have been cleared. You can now upload a new project folder.`
+        content: `Project files have been cleared. You are now in a new, empty session.`
      }]);
   };
   
@@ -84,6 +106,8 @@ export default function App(): React.ReactElement {
       if (files.length > 0) {
         setFileHistory(prev => [files, ...prev].slice(0, MAX_HISTORY_LENGTH));
       }
+      
+      setCurrentWorkspace('Current Session');
 
       setFiles(currentFiles => {
         const fileMap = new Map(currentFiles.map(f => [f.path, f]));
@@ -137,6 +161,8 @@ export default function App(): React.ReactElement {
       ...currentModified,
       [memoryFilePath]: (currentModified[memoryFilePath] || 0) + 1,
     }));
+    
+    setCurrentWorkspace('Current Session');
 
     setIsMemoryEditorOpen(false);
     setChatHistory(prev => [...prev, {
@@ -175,6 +201,8 @@ export default function App(): React.ReactElement {
           ...currentModified,
           [summaryFilePath]: (currentModified[summaryFilePath] || 0) + 1
       }));
+      
+      setCurrentWorkspace('Current Session');
 
       setChatHistory(prev => [
         ...prev.slice(0, -1),
@@ -221,6 +249,8 @@ export default function App(): React.ReactElement {
       });
       return updatedModifiedFiles;
     });
+    
+    setCurrentWorkspace('Current Session');
 
     setChatHistory(prev => [...prev, {
       role: 'model',
@@ -239,6 +269,126 @@ export default function App(): React.ReactElement {
   const handleAddChatMessage = useCallback((content: string) => {
     setChatHistory(prev => [...prev, { role: 'model', content }]);
   }, []);
+
+  const handleSaveWorkspace = useCallback(async () => {
+    if (files.length === 0) {
+      setChatHistory(prev => [...prev, {
+        role: 'model',
+        content: 'Cannot save an empty workspace. Please upload some files first.'
+      }]);
+      return;
+    }
+
+    const currentName = currentWorkspace !== 'Current Session' ? currentWorkspace : `Workspace ${new Date().toLocaleString()}`;
+    const name = prompt("Enter a name for this workspace:", currentName);
+    if (!name || !name.trim()) {
+      return; // User cancelled
+    }
+    
+    setIsLoading(true);
+    try {
+      await saveWorkspace(name.trim(), files);
+      setWorkspaces(prev => [...new Set([...prev, name.trim()])].sort());
+      setCurrentWorkspace(name.trim());
+      setChatHistory(prev => [...prev, {
+        role: 'model',
+        content: `✅ Workspace "${name.trim()}" has been saved.`
+      }]);
+    } catch (error) {
+      const errorMessage = `Failed to save workspace: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(errorMessage, error);
+      setChatHistory(prev => [...prev, {
+        role: 'model', content: '', error: errorMessage
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [files, currentWorkspace]);
+
+  const handleLoadWorkspace = useCallback(async (name: string) => {
+    if (name === currentWorkspace) return;
+
+    if (name === 'Current Session') {
+        if (files.length > 0 && confirm('This will clear all files and start a new, empty session. Are you sure?')) {
+            handleClearFiles();
+        } else if (files.length === 0) {
+            handleClearFiles();
+        }
+        return;
+    }
+
+    if (!confirm(`Loading workspace "${name}" will replace your current session. Unsaved changes will be lost. Continue?`)) {
+      // Find the select element and reset its value visually
+      const selectElement = document.querySelector('select[aria-label="Select a workspace"]') as HTMLSelectElement | null;
+      if (selectElement) {
+        selectElement.value = currentWorkspace;
+      }
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const workspace = await getWorkspace(name);
+      if (workspace) {
+        setModifiedFiles({});
+        setFileHistory([]);
+        setSessionSummary('');
+        setAiMemory('');
+        setFiles(workspace.files);
+        setCurrentWorkspace(name);
+        setChatHistory([{
+          role: 'model',
+          content: `✅ Workspace "${name}" loaded successfully.`
+        }]);
+      } else {
+        throw new Error("Workspace not found in the database. It may have been deleted.");
+      }
+    } catch (error) {
+      const errorMessage = `Failed to load workspace "${name}": ${error instanceof Error ? error.message : String(error)}`;
+      console.error(errorMessage, error);
+      setChatHistory(prev => [...prev, {
+        role: 'model', content: '', error: errorMessage
+      }]);
+      setCurrentWorkspace('Current Session');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentWorkspace, files]);
+
+  const handleDeleteWorkspace = useCallback(async (name: string) => {
+    if (name === 'Current Session') return;
+
+    if (!confirm(`Are you sure you want to permanently delete the workspace "${name}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await deleteWorkspace(name);
+      setWorkspaces(prev => prev.filter(w => w !== name));
+      
+      if (currentWorkspace === name) {
+        handleClearFiles();
+         setChatHistory([{
+            role: 'model',
+            content: `Workspace "${name}" has been deleted. Session cleared.`
+         }]);
+      } else {
+         setChatHistory(prev => [...prev, {
+            role: 'model',
+            content: `✅ Workspace "${name}" has been deleted.`
+         }]);
+      }
+    } catch (error) {
+       const errorMessage = `Failed to delete workspace "${name}": ${error instanceof Error ? error.message : String(error)}`;
+      console.error(errorMessage, error);
+      setChatHistory(prev => [...prev, {
+        role: 'model', content: '', error: errorMessage
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentWorkspace]);
 
   const handlePromptSubmit = useCallback(async (prompt: string, stagedFiles: File[]) => {
     if (isLoading) return;
@@ -325,6 +475,7 @@ export default function App(): React.ReactElement {
             [memoryFilePath]: (currentModified[memoryFilePath] || 0) + 1,
         }));
         
+        setCurrentWorkspace('Current Session');
         finalResponse = finalResponse.replace(memoryUpdateRegex, '').trim();
       }
       
@@ -414,6 +565,8 @@ export default function App(): React.ReactElement {
         model={model}
         isSummarizing={isSummarizing}
         sessionSummary={sessionSummary}
+        workspaces={workspaces}
+        currentWorkspace={currentWorkspace}
         onFileUpload={handleFileUpload} 
         onClearFiles={handleClearFiles}
         onOpenMemoryEditor={() => setIsMemoryEditorOpen(true)}
@@ -422,6 +575,9 @@ export default function App(): React.ReactElement {
         onViewFile={handleViewFile}
         onAddChatMessage={handleAddChatMessage}
         onAcknowledgeFileChange={handleAcknowledgeFileChange}
+        onSaveWorkspace={handleSaveWorkspace}
+        onLoadWorkspace={handleLoadWorkspace}
+        onDeleteWorkspace={handleDeleteWorkspace}
       />
       <div className="flex-1 flex flex-col bg-gray-800/50">
         <ChatInterface 

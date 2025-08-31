@@ -9,6 +9,7 @@ Welcome to Gemini Cloud CLI, a web-based interface designed for collaborative so
 *   **Project Upload:** Upload your entire project folder to provide the AI with full context of your codebase.
 *   **Interactive Chat:** Communicate with Gemini to ask questions, request code changes, refactor components, or generate new features.
 *   **File Management:** The AI can propose changes directly to your files. You can review these changes in a user-friendly diff format and apply them with a single click.
+*   **Workspaces (Project Snapshots):** Save your entire set of uploaded files as a named "workspace". This allows you to quickly reload a complete project snapshot in a future session with a single click. Workspaces are stored securely and reliably in your browser's **IndexedDB**, a robust database designed for this purpose (it is **not** the less reliable Local Storage).
 *   **Persistent Memory System:** The AI utilizes a two-part memory system stored as files within your project, ensuring context is never lost between sessions.
 
 ---
@@ -40,11 +41,12 @@ This file is the AI's short-term memory for the **current task**. As your conver
 ## Getting Started: Typical Workflow
 
 1.  **Prepare Your Project:** Create a folder named `AI_Memory` inside your project directory.
-2.  **Upload:** Click the **"Upload Project Folder"** button and select your main project folder.
+2.  **Upload:** Click the **"Upload Project Folder"** button and select your main project folder. Alternatively, if you have saved a workspace before, select it from the dropdown menu.
 3.  **Start Chatting:** Begin a conversation with the AI. You can ask it to review your code, suggest improvements, or implement a new feature.
 4.  **Manage Context:** As the conversation progresses, use the **"Save session summary"** button to keep the AI up-to-date on the current task.
 5.  **Apply Changes:** When the AI proposes file modifications, review the diffs presented in the chat and click **"Apply Changes"** to integrate them into your project files.
 6.  **Download:** Modified files will be highlighted in the File Explorer. Use the download icon to save them to your local machine.
+7.  **Save Your Work:** If you plan to return to this project, click the save icon in the "Workspace" section to save your current file set as a named workspace. Next time you open the app, you can load it instantly from the dropdown menu.
 
 ---
 
@@ -55,5 +57,6 @@ This application is built with:
 *   **React** & **TypeScript** for the frontend interface.
 *   **TailwindCSS** for styling.
 *   **@google/genai** SDK to communicate with the Gemini API.
+*   **IndexedDB** for client-side storage of workspaces.
 
 The application is a single-page app with no backend or build process. All code is contained within `index.html` and `index.tsx`.
