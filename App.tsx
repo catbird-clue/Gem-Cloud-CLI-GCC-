@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { FileExplorer } from './components/FileExplorer';
 import { ChatInterface } from './components/ChatInterface';
@@ -9,8 +10,9 @@ import { WorkspaceNameModal } from './components/WorkspaceNameModal';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import type { UploadedFile, ChatMessage, ProposedChange, GeminiModel } from './types';
 import { AVAILABLE_MODELS } from './types';
-import { streamChatResponse, summarizeSession } from './services/geminiService';
+import { streamChatResponse, summarizeSession, getAiFullFileContentForFallback } from './services/geminiService';
 import { saveWorkspace, getWorkspace, getAllWorkspaceNames, deleteWorkspace, checkStoragePersistence } from './services/dbService';
+import { applyStructuredChanges } from './utils/patchUtils';
 
 const MAX_HISTORY_LENGTH = 20; // Keep the last 20 file states
 
@@ -270,158 +272,101 @@ export default function App(): React.ReactElement {
     });
   }, []);
 
-  const applyFullFileChanges = useCallback((changesToApply: ProposedChange[]) => {
-      setFiles(currentFiles => {
-          const fileMap = new Map(currentFiles.map(f => [f.path, f]));
-          changesToApply.forEach(change => {
-              fileMap.set(change.filePath, { path: change.filePath, content: change.newContent });
-          });
-          return Array.from(fileMap.values()).sort((a, b) => a.path.localeCompare(b.path));
-      });
-
-      setModifiedFiles(currentModified => {
-          const updatedModifiedFiles = { ...currentModified };
-          changesToApply.forEach(change => {
-              updatedModifiedFiles[change.filePath] = (updatedModifiedFiles[change.filePath] || 0) + 1;
-          });
-          return updatedModifiedFiles;
-      });
-  }, []);
-  
-  const applyStructuredChanges = useCallback((xmlString: string): { success: boolean; error?: string } => {
-    try {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(xmlString, "application/xml");
-        const errorNode = xmlDoc.querySelector('parsererror');
-        if (errorNode) {
-            throw new Error(`XML parsing error: ${errorNode.textContent}`);
-        }
-        
-        const changeNodes = xmlDoc.getElementsByTagName('change');
-        if (changeNodes.length === 0) return { success: true }; // Nothing to apply
-
-        let updatedFiles = [...files];
-        const changedPaths: string[] = [];
-
-        for (const changeNode of Array.from(changeNodes)) {
-            const filePath = changeNode.getAttribute('file');
-            if (!filePath) throw new Error("A <change> tag is missing a 'file' attribute.");
-
-            let fileToUpdate = updatedFiles.find(f => f.path === filePath);
-            let currentContent = fileToUpdate ? fileToUpdate.content : '';
-            
-            // File creation is handled by the first operation on an empty content string.
-            if (!fileToUpdate) {
-                fileToUpdate = { path: filePath, content: '' };
-                updatedFiles.push(fileToUpdate);
-            }
-            
-            changedPaths.push(filePath);
-
-            for (const opNode of Array.from(changeNode.children)) {
-                const cdataContent = opNode.textContent || '';
-
-                switch (opNode.tagName) {
-                    case 'insert': {
-                        const afterLine = opNode.getAttribute('after_line');
-                        const beforeLine = opNode.getAttribute('before_line');
-                        if (afterLine) {
-                            const index = currentContent.indexOf(afterLine);
-                            if (index === -1) throw new Error(`Could not find anchor line for insert: "${afterLine}" in file ${filePath}.`);
-                            const insertPos = index + afterLine.length;
-                            currentContent = currentContent.slice(0, insertPos) + '\n' + cdataContent + currentContent.slice(insertPos);
-                        } else if (beforeLine) {
-                            const index = currentContent.indexOf(beforeLine);
-                            if (index === -1) throw new Error(`Could not find anchor line for insert: "${beforeLine}" in file ${filePath}.`);
-                            currentContent = currentContent.slice(0, index) + cdataContent + '\n' + currentContent.slice(index);
-                        } else { // No anchor means new file content or prepend
-                           currentContent = cdataContent + currentContent;
-                        }
-                        break;
-                    }
-                    case 'replace': {
-                        const sourceNode = opNode.querySelector('source');
-                        const newNode = opNode.querySelector('new');
-                        if (!sourceNode || !newNode) throw new Error(`Invalid <replace> tag in ${filePath}. Missing <source> or <new>.`);
-                        const sourceContent = sourceNode.textContent || '';
-                        const newContent = newNode.textContent || '';
-                        if (!currentContent.includes(sourceContent)) throw new Error(`Could not find <source> content to replace in ${filePath}. The file might have been modified.`);
-                        currentContent = currentContent.replace(sourceContent, newContent);
-                        break;
-                    }
-                    case 'delete': {
-                        if (!currentContent.includes(cdataContent)) throw new Error(`Could not find content to <delete> in ${filePath}. The file might have been modified.`);
-                        currentContent = currentContent.replace(cdataContent, '');
-                        break;
-                    }
-                    case 'description':
-                        // Ignore description tag, it's for the user.
-                        break;
-                    default:
-                        throw new Error(`Unknown operation tag: <${opNode.tagName}> in ${filePath}.`);
-                }
-            }
-            fileToUpdate.content = currentContent;
-        }
-
-        setFiles(updatedFiles.sort((a, b) => a.path.localeCompare(b.path)));
-        setModifiedFiles(currentModified => {
-            const updatedModifiedFiles = { ...currentModified };
-            changedPaths.forEach(path => {
-                updatedModifiedFiles[path] = (updatedModifiedFiles[path] || 0) + 1;
-            });
-            return updatedModifiedFiles;
-        });
-        
-        return { success: true };
-    } catch (e) {
-        // Log the detailed error for debugging, but return a simple failure signal.
-        console.error("Failed to apply structured changes:", e);
-        return { success: false, error: e instanceof Error ? e.message : "An unknown error occurred." };
-    }
-}, [files]);
-
-
-  const handleApplyChanges = useCallback((changesToApply: ProposedChange[], rawXml?: string) => {
+  const handleApplyChanges = useCallback(async (changesToApply: ProposedChange[], rawXml?: string) => {
     setFileHistory(prevHistory => [files, ...prevHistory].slice(0, MAX_HISTORY_LENGTH));
-    
-    let appliedSuccessfully = false;
-    
-    // Prioritize the new structured patch format if available
-    if (rawXml) {
-      const result = applyStructuredChanges(rawXml);
-      if (result.success) {
-        appliedSuccessfully = true;
-      } else {
-        // Fallback to full file changes if structured application fails, without notifying the user.
-        console.warn("Structured patch failed, falling back to full file content replacement. Details:", result.error);
+  
+    const fileMap = new Map(files.map(f => [f.path, f]));
+    let appliedChangesCount = 0;
+    let failedChanges: string[] = [];
+  
+    for (const change of changesToApply) {
+      const currentFile = fileMap.get(change.filePath);
+      const currentContent = currentFile?.content ?? '';
+  
+      try {
+        let finalContent: string;
+        // If it was a structured patch, try to re-apply it to the current content first.
+        if (change.rawXml) {
+          try {
+            console.log(`Attempting to apply structured patch for ${change.filePath}`);
+            finalContent = applyStructuredChanges(currentContent, change.rawXml);
+          } catch (patchError) {
+            console.warn(`Structured patch failed for ${change.filePath}:`, patchError);
+            throw new Error('Patch application failed, attempting self-heal.'); // Trigger self-healing
+          }
+        } else {
+          // It was a full-content change, just use it.
+          finalContent = change.newContent;
+        }
+
+        if (finalContent === '' && fileMap.has(change.filePath)) {
+            fileMap.delete(change.filePath);
+        } else if (finalContent !== '') {
+            fileMap.set(change.filePath, { path: change.filePath, content: finalContent });
+        }
+        appliedChangesCount++;
+      } catch (e) {
+        // Self-healing block for structured patch failures
+        console.log(`Initiating self-healing for ${change.filePath}...`);
+        setIsLoading(true);
+        setChatHistory(prev => [...prev, { role: 'model', content: `Patch for \`${change.filePath}\` failed. Attempting to self-heal...` }]);
+        
         try {
-          applyFullFileChanges(changesToApply);
-          appliedSuccessfully = true;
-        } catch(fallbackError) {
-          console.error("Full file content fallback also failed:", fallbackError);
-          // If even the fallback fails, we show an error.
-          setChatHistory(prev => [...prev, {
-            role: 'model',
-            content: '',
-            error: `Failed to apply changes, even after a fallback attempt. Error: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`
-          }]);
+          // FIX: Replace findLast with a compatible alternative for older TS/JS targets.
+          const userPrompt = [...chatHistory].reverse().find(m => m.role === 'user')?.content || 'User request';
+          const fallbackXml = await getAiFullFileContentForFallback(change.filePath, userPrompt, chatHistory, files, aiMemory, sessionSummary, model);
+          
+          const parser = new DOMParser();
+          const xmlDoc = parser.parseFromString(fallbackXml, "application/xml");
+          const contentNode = xmlDoc.getElementsByTagName('content')[0];
+          
+          if (!contentNode) throw new Error("Self-healing failed: AI did not return valid full content.");
+
+          const finalContent = contentNode.textContent || '';
+          if (finalContent === '' && fileMap.has(change.filePath)) {
+            fileMap.delete(change.filePath);
+          } else if (finalContent !== '') {
+            fileMap.set(change.filePath, { path: change.filePath, content: finalContent });
+          }
+          setChatHistory(prev => [...prev.slice(0, -1), { role: 'model', content: `✅ Self-healing successful for \`${change.filePath}\`.` }]);
+          appliedChangesCount++;
+        } catch (fallbackError) {
+          console.error("Self-healing failed:", fallbackError);
+          const errorMessage = `Failed to apply changes for \`${change.filePath}\` even after self-healing attempt.`;
+          setChatHistory(prev => [...prev.slice(0,-1), { role: 'model', content: '', error: errorMessage }]);
+          failedChanges.push(change.filePath);
+        } finally {
+          setIsLoading(false);
         }
       }
-    } else {
-      // Legacy path for old format (without structured patches)
-      applyFullFileChanges(changesToApply);
-      appliedSuccessfully = true;
     }
-    
-    if (appliedSuccessfully) {
-        setCurrentWorkspace('Current Session');
+  
+    setFiles(Array.from(fileMap.values()).sort((a, b) => a.path.localeCompare(b.path)));
+  
+    setModifiedFiles(currentModified => {
+      const updatedModifiedFiles = { ...currentModified };
+      changesToApply.forEach(change => {
+        if (!failedChanges.includes(change.filePath)) {
+            const finalFile = fileMap.get(change.filePath);
+            if (!finalFile) {
+                delete updatedModifiedFiles[change.filePath]; // Remove from modified list if deleted
+            } else {
+                updatedModifiedFiles[change.filePath] = (updatedModifiedFiles[change.filePath] || 0) + 1;
+            }
+        }
+      });
+      return updatedModifiedFiles;
+    });
+  
+    setCurrentWorkspace('Current Session');
+    if (appliedChangesCount > 0) {
         setChatHistory(prev => [...prev, {
-          role: 'model',
-          content: `Applied ${changesToApply.length} file change(s) to the project.`
+            role: 'model',
+            content: `Applied ${appliedChangesCount} file change(s) to the project.`
         }]);
     }
-  }, [files, applyFullFileChanges, applyStructuredChanges]);
+  }, [files, chatHistory, aiMemory, sessionSummary, model]);
+
 
   const handleStopGeneration = useCallback(() => {
     stopGenerationRef.current = true;
@@ -744,7 +689,6 @@ export default function App(): React.ReactElement {
       if (fileMatch && fileMatch[0]) {
         try {
           const xmlString = fileMatch[0];
-          rawXmlForChanges = xmlString; // Store raw XML for the new structured patch handler
           finalResponse = finalResponse.replace(fileUpdateRegex, '').trim();
           
           const parser = new DOMParser();
@@ -754,72 +698,52 @@ export default function App(): React.ReactElement {
             throw new Error(`XML parsing error: ${errorNode.textContent}`);
           }
           
-          // This part is now primarily for generating the visual diff.
-          // The actual application of changes will use the raw XML string.
           const changeNodes = xmlDoc.getElementsByTagName('change');
-          const fileChanges: { filePath: string; newContent: string }[] = [];
+          const generatedChanges: ProposedChange[] = [];
           
-          // We need to determine the new content for diffing purposes.
-          // This is a simplified simulation, the real logic is in applyStructuredChanges.
           for (const changeNode of Array.from(changeNodes)) {
-              const filePathAttr = changeNode.getAttribute('file');
-              const filePath = filePathAttr || (changeNode.getElementsByTagName('file')[0]?.textContent || '');
+            const filePathNode = changeNode.getElementsByTagName('file')[0];
+            if (!filePathNode) continue;
+            const filePath = filePathNode.textContent || '';
+            const oldFile = files.find(f => f.path === filePath);
+            const oldContent = oldFile?.content ?? '';
+            
+            let newContent = '';
+            let isPatch = false;
 
-              const oldFile = files.find(f => f.path === filePath);
-              let tempContent = oldFile ? oldFile.content : '';
+            // Check if it's a structured patch or a full content change
+            const contentNode = changeNode.getElementsByTagName('content')[0];
+            if (contentNode) { // Full content change
+                newContent = contentNode.textContent || '';
+            } else { // Structured patch
+                isPatch = true;
+                const patchXml = changeNode.outerHTML;
+                rawXmlForChanges = patchXml; // Store raw XML for this change
+                newContent = applyStructuredChanges(oldContent, patchXml);
+            }
+            
+            const change: ProposedChange = {
+                filePath,
+                oldContent,
+                newContent,
+                rawXml: isPatch ? rawXmlForChanges : undefined,
+            };
 
-              // Heuristic for full file content replacement (legacy format)
-              const contentNode = changeNode.querySelector('content');
-              if(contentNode) {
-                  fileChanges.push({ filePath, newContent: contentNode.textContent || '' });
-                  continue; // Skip structured processing for this node
-              }
-
-              // Simulate structured changes to generate newContent for diff
-              for(const opNode of Array.from(changeNode.children)) {
-                   const cdataContent = opNode.textContent || '';
-                   switch (opNode.tagName) {
-                       case 'insert': {
-                           // Simplified for diffing, actual logic is more complex
-                           tempContent += '\n' + cdataContent;
-                           break;
-                       }
-                       case 'replace': {
-                           const sourceContent = opNode.querySelector('source')?.textContent || '';
-                           const newContent = opNode.querySelector('new')?.textContent || '';
-                           tempContent = tempContent.replace(sourceContent, newContent);
-                           break;
-                       }
-                       case 'delete': {
-                           tempContent = tempContent.replace(cdataContent, '');
-                           break;
-                       }
-                   }
-              }
-              fileChanges.push({ filePath, newContent: tempContent });
+            // Don't propose creating empty new files
+            if (!(change.newContent === '' && !oldFile)) {
+                generatedChanges.push(change);
+            }
           }
           
-          if (fileChanges.length > 0) {
-              const generatedChanges: ProposedChange[] = fileChanges.map(item => {
-                  const oldFile = files.find(f => f.path === item.filePath);
-                  const oldContentForDiff = oldFile ? oldFile.content : `// A new file will be created at: ${item.filePath}`;
-                  return {
-                      filePath: item.filePath,
-                      oldContent: oldContentForDiff,
-                      newContent: item.newContent
-                  };
-              }).filter(c => !(c.newContent === '' && !files.some(f => f.path === c.filePath))); // Don't propose creating empty new files
-              
-              if(generatedChanges.length > 0) {
-                 proposedChanges = generatedChanges;
-              }
+          if (generatedChanges.length > 0) {
+              proposedChanges = generatedChanges;
           }
 
-        } catch (xmlError) {
-          console.error("Failed to parse or apply file changes:", xmlError);
+        } catch (err) {
+          console.error("Failed to parse or apply file changes:", err);
           let errorMessage = "The AI proposed an invalid file change format.";
-          if (xmlError instanceof Error) {
-            errorMessage += ` Details: ${xmlError.message}`;
+          if (err instanceof Error) {
+            errorMessage += ` Details: ${err.message}`;
           }
            setChatHistory(prev => {
               const lastMessage = prev[prev.length - 1];
@@ -875,7 +799,7 @@ export default function App(): React.ReactElement {
       stopGenerationRef.current = false;
       setAiThought(null);
     }
-  }, [isLoading, files, aiMemory, sessionSummary, model, chatHistory, fileHistory, applyStructuredChanges]);
+  }, [isLoading, files, aiMemory, sessionSummary, model, chatHistory, fileHistory]);
 
   return (
     <main className="flex h-screen w-screen bg-gray-900 text-gray-200">
@@ -906,7 +830,7 @@ export default function App(): React.ReactElement {
           isLoading={isLoading}
           aiThought={aiThought}
           onPromptSubmit={handlePromptSubmit}
-          onApplyChanges={(changes, xml) => handleApplyChanges(changes, xml)}
+          onApplyChanges={handleApplyChanges}
           onStopGeneration={handleStopGeneration}
         />
       </div>

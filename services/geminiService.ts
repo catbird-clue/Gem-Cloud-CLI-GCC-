@@ -128,54 +128,71 @@ There is a single, dedicated file for storing the session summary/context: \`AI_
 
   const fileModificationInstruction = `
 ---
-SPECIAL INSTRUCTIONS: FILE MODIFICATION (STRUCTURED PATCHES)
-You have the ability to propose changes to the user's project files using a robust "Structured Patch" format. This is more reliable than standard diffs and more token-efficient than sending whole files.
+SPECIAL INSTRUCTIONS: FILE MODIFICATION (HYBRID STRATEGY)
+You have the ability to propose changes to the user's project files. You must intelligently choose between two methods: "Structured Patch" for small changes, and "Full Content" for large changes.
 
-1.  **TRIGGER**: When the user asks you to modify, change, refactor, implement, add, or fix code, you MUST use this mechanism.
-2.  **CRITICAL RULE OF INTEGRITY**: If your user-facing response mentions, discusses, or implies that you are providing code or proposing a change (e.g., "Here is the updated code:", "I have implemented the changes:"), you are **MANDATED** to provide the corresponding \`<changes>\` XML block in the same response. **There are no exceptions.**
-3.  **MECHANISM**: You MUST use a special XML block. The application parses this XML to apply changes and show a diff.
-4.  **FORMAT**:
-    -   The entire block is wrapped in \`<changes>\`.
-    -   Each file to be modified is wrapped in a \`<change file="path/to/the/file.ts">\` tag.
-    -   Inside each \`<change>\`, you MUST include a short \`<description>\` of the overall change for that file.
-    -   Inside each \`<change>\`, you can use one or more of the following operation tags:
-        -   **\`${'<insert after_line="UNIQUE_ANCHOR_LINE">'}\`** or **\`${'<insert before_line="UNIQUE_ANCHOR_LINE">'}\`**:
-            -   Use this to add new code.
-            -   The \`after_line\` or \`before_line\` attribute MUST contain a sufficiently unique line from the file to serve as an anchor.
-            -   **CRITICAL ANCHOR RULE**: The anchor line must be chosen carefully. It **MUST NOT** contain any server-side templating syntax (e.g., \`<?= ... ?>\`, \`<% ... %>\`). Instead, choose a simple, static line of code nearby. Avoid generic lines like "{" or "</div>". If the anchor line contains special XML characters (\`<\`, \`>\`, \`&\`), they must be escaped (e.g., \`&lt;\`, \`&gt;\`, \`&amp;\`).
-            -   The content to be inserted goes inside a \`<![CDATA[...]]>\` block.
-            -   For creating a **new file**, use a single \`<insert>\` tag without any attributes (\`${'<insert>'}\`).
-        -   **\`${'<replace>'}\`**:
-            -   Use this to replace a specific block of code. This is very robust **if used correctly**.
-            -   It MUST contain two children: \`<source><![CDATA[...]]></source>\` and \`<new><![CDATA[...]]></new>\`.
-            -   **CRITICAL RULE for \`<source>\`**: The content inside \`<source>\` MUST be a 100% character-for-character match of the code in the file. To ensure this, you must mentally **"copy"** the block of code from the file provided in the context, and **"paste"** it into the \`<source>\` tag. Do not re-type it or reconstruct it from memory. Any mismatch, including whitespace or line endings, will cause the operation to fail.
-            -   **FALLBACK**: If a block of code is very long, or you are not 100% certain you can reproduce it verbatim in the \`<source>\` tag, **DO NOT use \`<replace>\`**. Instead, use a combination of \`<delete>\` and \`<insert>\`. Use \`<delete>\` on a smaller, guaranteed-to-be-unique part of the code block, and then use \`<insert>\` with a reliable anchor to add the new version.
-        -   **\`${'<delete>'}\`**:
-            -   Use this to delete a specific block of code.
-            -   The content to be deleted must be placed, *exactly as it appears in the file*, inside a \`<![CDATA[...]]>\` block.
-            -   To **delete a file**, the \`<delete>\` tag should contain the *entire content* of the file.
+1.  **CRITICAL RULE OF INTEGRITY**: If your user-facing response mentions, discusses, or implies that you are providing code or proposing a change (e.g., "Here is the updated code:", "I have implemented the changes:"), you are **MANDATED** to provide the corresponding \`<changes>\` XML block in the same response. **There are no exceptions.**
+2.  **MECHANISM**: You MUST use a special XML block wrapped in \`<changes>\`. Each file to modify is in a \`<change>\` tag containing the file path: \`<change file="path/to/file.ext">\`.
 
-5.  **EXAMPLE of modifying a file**:
+---
+**METHOD 1: STRUCTURED PATCH (PREFERRED FOR SMALL CHANGES)**
+Use this for surgical edits like fixing a bug, adding a function, or changing a line. This is the most token-efficient method.
+
+*   **Operations**: Inside a \`<change>\` block, you can use \`<insert>\`, \`<replace>\`, or \`<delete>\`.
+*   **\`<insert after_line="..." or before_line="...">\`**: Inserts code.
+    *   **CRITICAL**: The anchor line you choose for \`after_line\` or \`before_line\` **MUST BE ABSOLUTELY UNIQUE** within the file. Good anchors are function/class definitions or unique import statements. Bad anchors are common lines like \`</div>\` or \`}\`.
+    *   Content to insert goes in a \`<![CDATA[...]]>\` block.
+*   **\`<replace>\`**: Replaces a block of code. This is very robust.
+    *   **\`<source>\`**: The exact, original block of code to be replaced, wrapped in \`<![CDATA[...]]>\`.
+    *   **\`<new>\`**: The new code to replace the source block, wrapped in \`<![CDATA[...]]>\`.
+*   **\`<delete>\`**: Deletes a block of code. Also very robust.
+    *   Content to delete goes in a \`<![CDATA[...]]>\` block.
+
+*   **Example of a Structured Patch**:
     \`\`\`xml
     <changes>
       <change file="src/App.tsx">
-        <description>Add a reset button and its handler.</description>
+        <description>Add a reset button.</description>
         <insert after_line="const [count, setCount] = useState(0);">
-            <![CDATA[
-      const handleReset = () => setCount(0);
-            ]]>
+          <![CDATA[
+    const handleReset = () => setCount(0);
+          ]]>
         </insert>
         <replace>
-            <source><![CDATA[<button onClick={() => setCount(count + 1)}>Click me</button>]]></source>
-            <new><![CDATA[<button onClick={() => setCount(c => c + 1)}>Click me</button>
-      <button onClick={handleReset}>Reset</button>]]></new>
+          <source><![CDATA[<button onClick={() => setCount(count + 1)}>Click me</button>]]></source>
+          <new><![CDATA[<button onClick={() => setCount(c => c + 1)}>Click me</button>
+    <button onClick={handleReset}>Reset</button>]]></new>
         </replace>
       </change>
     </changes>
     \`\`\`
-6.  **AUTOMATIC DOCUMENTATION & CHANGELOGS**: When you propose a code change, you MUST ALSO proactively update relevant documentation files (\`CHANGELOG.md\`, \`README.md\`) in the same \`<changes>\` block.
-7.  **USER RESPONSE**: Your visible response to the user should summarize the changes. You MUST NOT instruct the user to copy/paste XML or use a "terminal". Guide them to use the UI elements (e.g., "I've proposed some changes. You can review them below and click 'Apply Changes' to accept."). The user-facing response **MUST NOT** contain any markdown code blocks (\`\`\`) or diff-like text.
-8.  **MANUAL FOLLOW-UP ACTIONS**: If your change requires manual steps (e.g., "update a Google Sheet"), list them clearly in your response AND propose creating/updating a \`TODO.md\` file with those steps using the \`<changes>\` block.
+
+---
+**METHOD 2: FULL CONTENT (FOR LARGE CHANGES)**
+Use this when creating a new file, performing a major refactor of an existing file, or when a structured patch would be too complex.
+
+*   **Operations**: Inside the \`<change>\` block, you will have a single \`<content>\` tag.
+    *   **\`<content>\`**: This tag MUST contain the **ENTIRE, NEW, FINAL CONTENT** of the file, wrapped in a \`<![CDATA[...]]>\` block.
+*   **To CREATE a new file**: Provide the new path in \`file="..."\` and the complete content in \`<content>\`.
+*   **To DELETE a file**: Provide the path in \`file="..."\` and leave the \`<content>\` tag **completely empty** (i.e., \`<content><![CDATA[]]></content>\`).
+
+*   **Example of a Full Content change**:
+    \`\`\`xml
+    <changes>
+      <change file="src/NewComponent.tsx">
+        <content><![CDATA[import React from 'react';
+
+    const NewComponent = () => <div>Hello World</div>;
+
+    export default NewComponent;]]></content>
+      </change>
+    </changes>
+    \`\`\`
+---
+
+**GENERAL RULES FOR ALL MODIFICATIONS**
+*   **User Response**: Your visible response to the user should summarize the changes. You MUST NOT instruct the user to copy/paste XML. Guide them to use the UI elements (e.g., "I've proposed some changes. You can review them below and click 'Apply Changes' to accept."). The user-facing response **MUST NOT** contain any markdown code blocks (\`\`\`) of the changed code.
+*   **Proactive Updates**: When you propose a code change, you MUST ALSO proactively update relevant documentation files (\`CHANGELOG.md\`, \`README.md\`, \`TODO.md\`) in the same \`<changes>\` block.
 ---
 `;
 
@@ -187,7 +204,7 @@ The application automatically saves a version of a file before any change is app
 1.  **TRIGGER**: The user will ask you to "undo", "revert", or "roll back" a change to a specific file.
 2.  **MECHANISM**: To perform an undo, you MUST propose a standard file change using the \`<changes>\` block. You do not need a special command.
 3.  **CONTEXT FOR UNDO**: If the application detects an undo request, it will provide the previous version of the requested file as context in a special section below.
-4.  **ACTION**: Your task is to take the content from the "PREVIOUS VERSION OF [file]" section and use it as the \`content\` for that file in your \`<changes>\` proposal. This will effectively revert the file.
+4.  **ACTION**: Your task is to take the content from the "PREVIOUS VERSION OF [file]" section and use it as the \`content\` for that file in your \`<changes>\` proposal (using the "FULL CONTENT" method). This will effectively revert the file.
 5.  **USER RESPONSE**: Inform the user that you are proposing to revert the file to its previous state.
 ---
 `;
@@ -326,6 +343,70 @@ export const streamChatResponse = async function* (
         yield chunk.text;
       }
     }
+};
+
+export const getAiFullFileContentForFallback = async (
+    filePath: string,
+    originalUserPrompt: string,
+    chatHistory: ChatMessage[],
+    files: UploadedFile[],
+    memory: string,
+    sessionSummary: string,
+    model: GeminiModel
+): Promise<string> => {
+    const fallbackPrompt = `
+    CRITICAL: SELF-HEALING PROTOCOL ACTIVATED.
+    A structured patch you previously generated for the file \`${filePath}\` failed to apply.
+    This was likely due to the file's content changing before the patch could be applied.
+
+    To recover from this, you MUST now provide the complete, new content for the file \`${filePath}\` that achieves the user's original goal.
+
+    Original user request was: "${originalUserPrompt}"
+
+    Your task is to re-evaluate the request based on the full project context and provide a single \`<changes>\` block containing the complete, final content for \`${filePath}\`.
+    DO NOT use a structured patch this time. Use the "Full Content" method.
+    DO NOT provide any other text, explanation, or conversational filler. Your entire response must be only the \`<changes>\` XML block.
+    `;
+
+    // We build the full context just like a normal request to ensure the AI has everything it needs.
+    const systemInstruction = buildSystemInstruction(fallbackPrompt, files, files.map(f => f.path), [], memory, sessionSummary);
+
+    const contents: ModelContent[] = [
+        ...chatHistory.map(message => ({
+            role: message.role,
+            parts: [{ text: message.content }]
+        })),
+        {
+            role: 'user',
+            parts: [{text: fallbackPrompt }]
+        }
+    ];
+
+    console.log(`Sending self-healing request for ${filePath}`);
+
+    const response = await callGeminiWithRetry<GenerateContentResponse>(() => 
+        ai.models.generateContent({
+            model,
+            contents,
+            config: {
+              systemInstruction,
+              temperature: 0.5, // Lower temperature for more deterministic recovery
+            }
+        })
+    );
+
+    const responseText = response.text;
+    if (!responseText) {
+        throw new Error("Self-healing failed: AI returned an empty response.");
+    }
+    
+    const fileUpdateRegex = /<changes>([\s\S]*?)<\/changes>/g;
+    const match = responseText.match(fileUpdateRegex);
+    if (!match || !match[0]) {
+        throw new Error("Self-healing failed: AI response did not contain a valid <changes> block.");
+    }
+    
+    return match[0];
 };
 
 export const summarizeSession = async (chatHistory: ChatMessage[], previousSummary: string): Promise<string> => {
