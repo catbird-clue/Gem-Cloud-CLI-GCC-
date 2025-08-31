@@ -111,13 +111,26 @@ export async function deleteWorkspace(name: string): Promise<void> {
     const db = await openDB();
     return new Promise((resolve, reject) => {
         const transaction = db.transaction(STORE_NAME, 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.delete(name);
-
-        request.onsuccess = () => resolve();
-        request.onerror = () => {
-            console.error('Error deleting workspace:', request.error);
-            reject('Failed to delete workspace.');
+        
+        // Listen to transaction events, which are more reliable than request events,
+        // to prevent the operation from hanging silently.
+        transaction.oncomplete = () => {
+            resolve();
         };
+
+        transaction.onerror = (event) => {
+            const error = (event.target as IDBTransaction)?.error ?? 'Unknown transaction error';
+            console.error(`Transaction error deleting workspace "${name}":`, error);
+            reject('Failed to delete workspace due to a transaction error.');
+        };
+        
+        transaction.onabort = (event) => {
+            const error = (event.target as IDBTransaction)?.error ?? 'Transaction aborted';
+            console.error(`Transaction aborted for workspace "${name}":`, error);
+            reject('Workspace deletion was aborted.');
+        };
+
+        const store = transaction.objectStore(STORE_NAME);
+        store.delete(name);
     });
 }

@@ -5,6 +5,7 @@ import { MemoryEditor } from './components/MemoryEditor';
 import { FileViewer } from './components/FileViewer';
 import { SessionSummaryViewer } from './components/SessionSummaryViewer';
 import { WorkspaceNameModal } from './components/WorkspaceNameModal';
+import { ConfirmationModal } from './components/ConfirmationModal';
 import type { UploadedFile, ChatMessage, FileChange, ProposedChange, GeminiModel } from './types';
 import { AVAILABLE_MODELS } from './types';
 import { streamChatResponse, summarizeSession } from './services/geminiService';
@@ -31,6 +32,18 @@ export default function App(): React.ReactElement {
   const [isSaveWorkspaceModalOpen, setIsSaveWorkspaceModalOpen] = useState(false);
   const [suggestedWorkspaceName, setSuggestedWorkspaceName] = useState('');
   const [persistenceWarningShown, setPersistenceWarningShown] = useState(false);
+  const [confirmModalState, setConfirmModalState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: React.ReactNode;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: null,
+    onConfirm: () => {},
+  });
+
   const stopGenerationRef = useRef(false);
   
   // Effect to load workspaces on mount
@@ -338,82 +351,131 @@ export default function App(): React.ReactElement {
   const handleLoadWorkspace = useCallback(async (name: string) => {
     if (name === currentWorkspace) return;
 
+    const performLoad = async () => {
+        setIsLoading(true);
+        try {
+            const workspace = await getWorkspace(name);
+            if (workspace) {
+                setModifiedFiles({});
+                setFileHistory([]);
+                setSessionSummary('');
+                setAiMemory('');
+                setFiles(workspace.files);
+                setCurrentWorkspace(name);
+                setChatHistory([{
+                    role: 'model',
+                    content: `✅ Workspace "${name}" loaded successfully.`
+                }]);
+            } else {
+                throw new Error("Workspace not found in the database. It may have been deleted.");
+            }
+        } catch (error) {
+            const errorMessage = `Failed to load workspace "${name}": ${error instanceof Error ? error.message : String(error)}`;
+            console.error(errorMessage, error);
+            setChatHistory(prev => [...prev, {
+                role: 'model', content: '', error: errorMessage
+            }]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     if (name === 'Current Session') {
-      const hasUnsavedChanges = (currentWorkspace !== 'Current Session' && Object.keys(modifiedFiles).length > 0) || (currentWorkspace === 'Current Session' && files.length > 0);
-      if (hasUnsavedChanges && !confirm('This will clear all files and start a new, empty session. Are you sure?')) {
-          return;
-      }
-      handleClearFiles();
-      return;
+        const hasUnsavedChanges = (currentWorkspace !== 'Current Session' && Object.keys(modifiedFiles).length > 0) || (currentWorkspace === 'Current Session' && files.length > 0);
+        if (hasUnsavedChanges) {
+            setConfirmModalState({
+                isOpen: true,
+                title: 'Start New Session',
+                message: <p>This will clear all files and start a new, empty session. Are you sure?</p>,
+                onConfirm: () => {
+                    handleClearFiles();
+                    setConfirmModalState(prev => ({ ...prev, isOpen: false }));
+                }
+            });
+        } else {
+            handleClearFiles();
+        }
+        return;
     }
 
     const hasUnsavedChanges = (currentWorkspace === 'Current Session' && files.length > 0) || Object.keys(modifiedFiles).length > 0;
-    if (hasUnsavedChanges && !confirm(`Loading workspace "${name}" will replace your current session. Unsaved changes will be lost. Continue?`)) {
+    if (hasUnsavedChanges) {
+        setConfirmModalState({
+            isOpen: true,
+            title: 'Load Workspace',
+            message: (
+                <p>
+                    Loading workspace <strong className="font-bold text-indigo-400">{name}</strong> will replace your current session. Unsaved changes will be lost. Continue?
+                </p>
+            ),
+            onConfirm: () => {
+                performLoad();
+                setConfirmModalState(prev => ({ ...prev, isOpen: false }));
+            }
+        });
+    } else {
+        await performLoad();
+    }
+  }, [currentWorkspace, files, modifiedFiles, handleClearFiles]);
+
+  const handleDeleteWorkspace = useCallback(() => {
+    const name = currentWorkspace;
+    if (name === 'Current Session' || !name) {
       return;
     }
 
-    setIsLoading(true);
-    try {
-      const workspace = await getWorkspace(name);
-      if (workspace) {
+    const performDelete = async () => {
+      console.log(`Attempting to delete workspace: "${name}"`);
+      setIsLoading(true);
+      try {
+        await deleteWorkspace(name);
+        console.log(`Successfully deleted "${name}" from IndexedDB.`);
+
+        setWorkspaces(prev => prev.filter(w => w !== name));
+        console.log('Removed workspace from UI list.');
+
+        setFiles([]);
         setModifiedFiles({});
         setFileHistory([]);
         setSessionSummary('');
         setAiMemory('');
-        setFiles(workspace.files);
-        setCurrentWorkspace(name);
+        setCurrentWorkspace('Current Session');
+        console.log('Session has been cleared and reset to "Current Session".');
+        
         setChatHistory([{
           role: 'model',
-          content: `✅ Workspace "${name}" loaded successfully.`
+          content: `Workspace "${name}" has been deleted. Your session has been cleared.`
         }]);
-      } else {
-        throw new Error("Workspace not found in the database. It may have been deleted.");
+        console.log('Posted confirmation message to chat.');
+
+      } catch (error) {
+        const errorMessage = `Failed to delete workspace "${name}": ${error instanceof Error ? error.message : String(error)}`;
+        console.error(errorMessage, error);
+        setChatHistory(prev => [...prev, {
+          role: 'model', content: '', error: errorMessage
+        }]);
+      } finally {
+        setIsLoading(false);
+        console.log('Delete process finished.');
       }
-    } catch (error) {
-      const errorMessage = `Failed to load workspace "${name}": ${error instanceof Error ? error.message : String(error)}`;
-      console.error(errorMessage, error);
-      setChatHistory(prev => [...prev, {
-        role: 'model', content: '', error: errorMessage
-      }]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentWorkspace, files, modifiedFiles, handleClearFiles]);
+    };
 
-  const handleDeleteWorkspace = useCallback(async (name: string) => {
-    if (name === 'Current Session') return;
+    setConfirmModalState({
+      isOpen: true,
+      title: 'Delete Workspace',
+      message: (
+        <p>
+          Are you sure you want to permanently delete the workspace{' '}
+          <strong className="font-bold text-red-400">{name}</strong>? This action cannot be undone.
+        </p>
+      ),
+      onConfirm: () => {
+        performDelete();
+        setConfirmModalState(prev => ({ ...prev, isOpen: false }));
+      },
+    });
 
-    if (!confirm(`Are you sure you want to permanently delete the workspace "${name}"? This action cannot be undone.`)) {
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      await deleteWorkspace(name);
-      setWorkspaces(prev => prev.filter(w => w !== name));
-      
-      if (currentWorkspace === name) {
-        handleClearFiles();
-         setChatHistory([{
-            role: 'model',
-            content: `Workspace "${name}" has been deleted. Session cleared.`
-         }]);
-      } else {
-         setChatHistory(prev => [...prev, {
-            role: 'model',
-            content: `✅ Workspace "${name}" has been deleted.`
-         }]);
-      }
-    } catch (error) {
-       const errorMessage = `Failed to delete workspace "${name}": ${error instanceof Error ? error.message : String(error)}`;
-      console.error(errorMessage, error);
-      setChatHistory(prev => [...prev, {
-        role: 'model', content: '', error: errorMessage
-      }]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentWorkspace, handleClearFiles]);
+  }, [currentWorkspace]);
 
   const handlePromptSubmit = useCallback(async (prompt: string, stagedFiles: File[]) => {
     if (isLoading) return;
@@ -635,6 +697,14 @@ export default function App(): React.ReactElement {
         onSave={handleSaveWorkspace}
         onClose={() => setIsSaveWorkspaceModalOpen(false)}
       />
+      <ConfirmationModal
+        isOpen={confirmModalState.isOpen}
+        title={confirmModalState.title}
+        onConfirm={confirmModalState.onConfirm}
+        onCancel={() => setConfirmModalState(prev => ({ ...prev, isOpen: false }))}
+      >
+        {confirmModalState.message}
+      </ConfirmationModal>
     </main>
   );
 }

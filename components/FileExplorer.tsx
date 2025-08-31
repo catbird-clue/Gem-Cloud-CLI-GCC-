@@ -20,7 +20,7 @@ interface FileExplorerProps {
   onAcknowledgeFileChange: (filePath: string) => void;
   onSaveWorkspace: () => void;
   onLoadWorkspace: (name: string) => void;
-  onDeleteWorkspace: (name: string) => void;
+  onDeleteWorkspace: () => void;
 }
 
 interface FileTreeProps {
@@ -274,7 +274,7 @@ export const FileExplorer = ({ files, modifiedFiles, model, isSummarizing, sessi
                   <SaveIcon className="w-5 h-5" />
                 </button>
                 <button
-                  onClick={() => onDeleteWorkspace(currentWorkspace)}
+                  onClick={onDeleteWorkspace}
                   disabled={!isWorkspaceSelected}
                   className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                   title={isWorkspaceSelected ? `Delete workspace "${currentWorkspace}"` : "Select a workspace to delete"}
