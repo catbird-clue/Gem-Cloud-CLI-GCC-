@@ -91,37 +91,35 @@ This application is built with:
 
 The application is a single-page app with no backend or build process. All code is contained within `index.html` and `index.tsx`. The AI's instructions, which dictate its behavior (including the file modification format), are located in `services/geminiService.ts`.
 
-### File Modification Mechanism: Structured Patches
+### File Modification Mechanism: Full Content Replacement
 
-To balance token efficiency with reliability, the AI proposes file changes using a custom "Structured Patch" XML format. This is more robust than a standard `diff` patch and more efficient than sending the entire file content.
+To ensure maximum reliability, the AI proposes file changes using a simple and robust "Full Content" XML format. This is more reliable than a standard `diff` patch because it eliminates any ambiguity about where a change should be applied.
 
--   **Wrapper:** All changes for a file are contained within a `<change file="...">` block. A response can contain multiple `<change>` blocks for different files.
--   **Operations:** Inside a `<change>` block, the AI can specify one or more of the following operations:
-    -   **`<insert after_line="..." or before_line="...">`**: Inserts a block of code after or before a specific, unique "anchor" line. This is more robust than using line numbers.
-        -   **Content:** The code to insert is placed within a `<![CDATA[...]]>` block.
-    -   **`<replace>`**: Replaces an existing block of code with a new one. This is extremely robust.
-        -   **`<source>`**: The exact block of code to be replaced, wrapped in `<![CDATA[...]]>`.
-        -   **`<new>`**: The new code to replace the source block, wrapped in `<![CDATA[...]]>`.
-    -   **`<delete>`**: Deletes a specific block of code. Also extremely robust.
-        -   **Content:** The exact block of code to be deleted is placed within a `<![CDATA[...]]>` block.
--   **File Creation:** To create a new file, the AI proposes a single `<insert>` operation within a `<change>` block for the new file path, without using `after_line` or `before_line`.
--   **File Deletion:** To delete a file, the AI proposes a single `<delete>` operation that contains the entire content of the file to be deleted.
+-   **Wrapper:** All changes are contained within a `<changes>` block. Each individual file modification is wrapped in a `<change file="...">` block, where `file` specifies the path.
+-   **Operation:** To modify a file or create a new one, the AI provides a single `<content>` tag inside the `<change>` block.
+    -   **`<content>`**: This tag MUST contain the **ENTIRE, NEW, FINAL CONTENT** of the file, wrapped in a `<![CDATA[...]]>` block.
+-   **File Creation:** To create a new file, the AI provides the new path in the `file` attribute and includes the complete content of the new file inside the `<content>` tag.
+-   **File Deletion:** To delete a file, the AI provides the file's path and an **empty** `<content>` tag (i.e., `<content><![CDATA[]]></content>`).
 
--   **Example of a file modification**:
+-   **Example of creating/modifying a file**:
     ```xml
     <changes>
-      <change file="src/App.tsx">
-        <description>Add a reset button and a state for it.</description>
-        <insert after_line="const [count, setCount] = useState(0);">
-            <![CDATA[
-      const handleReset = () => setCount(0);
-            ]]>
-        </insert>
-        <replace>
-            <source><![CDATA[<button onClick={() => setCount(count + 1)}>Click me</button>]]></source>
-            <new><![CDATA[<button onClick={() => setCount(c => c + 1)}>Click me</button>
-      <button onClick={handleReset}>Reset</button>]]></new>
-        </replace>
+      <change file="src/NewComponent.tsx">
+        <description>A new React component.</description>
+        <content><![CDATA[import React from 'react';
+
+    const NewComponent = () => {
+      return <div>Hello, World!</div>;
+    };
+
+    export default NewComponent;]]></content>
+      </change>
+      <change file="src/api.js">
+        <description>Update the API endpoint.</description>
+        <content><![CDATA[// New API endpoint
+    const API_ENDPOINT = 'https://api.example.com/v2';
+
+    export { API_ENDPOINT };]]></content>
       </change>
     </changes>
     ```

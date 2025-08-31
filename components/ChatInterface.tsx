@@ -9,7 +9,7 @@ interface ChatInterfaceProps {
   isLoading: boolean;
   aiThought: string | null;
   onPromptSubmit: (prompt: string, stagedFiles: File[]) => void;
-  onApplyChanges: (changes: ProposedChange[], rawXml?: string) => void;
+  onApplyChanges: (changes: ProposedChange[]) => void;
   onStopGeneration: () => void;
 }
 

@@ -127,55 +127,17 @@ There is a single, dedicated file for storing the session summary/context: \`AI_
 
   const fileModificationInstruction = `
 ---
-SPECIAL INSTRUCTIONS: FILE MODIFICATION (HYBRID STRATEGY)
-You have the ability to propose changes to the user's project files. You must intelligently choose between two methods: "Structured Patch" for small changes, and "Full Content" for large changes.
+SPECIAL INSTRUCTIONS: FILE MODIFICATION (FULL CONTENT)
+To ensure maximum reliability, you MUST use the "Full Content" method for ALL file modifications. Structured patches are not supported.
 
 1.  **CRITICAL RULE OF INTEGRITY**: If your user-facing response mentions, discusses, or implies that you are providing code or proposing a change (e.g., "Here is the updated code:", "I have implemented the changes:"), you are **MANDATED** to provide the corresponding \`<changes>\` XML block in the same response. **There are no exceptions.**
 2.  **MECHANISM**: You MUST use a special XML block wrapped in \`<changes>\`. Each file to modify is in a \`<change>\` tag containing the file path: \`<change file="path/to/file.ext">\`.
-
----
-**METHOD 1: STRUCTURED PATCH (PREFERRED FOR SMALL CHANGES)**
-Use this for surgical edits like fixing a bug, adding a function, or changing a line. This is the most token-efficient method.
-
-*   **Operations**: Inside a \`<change>\` block, you can use \`<insert>\`, \`<replace>\`, or \`<delete>\`.
-*   **\`<insert after_line="..." or before_line="...">\`**: Inserts code.
-    *   **CRITICAL**: The anchor line you choose for \`after_line\` or \`before_line\` **MUST BE ABSOLUTELY UNIQUE** within the file. Good anchors are function/class definitions or unique import statements. Bad anchors are common lines like \`</div>\` or \`}\`.
-    *   Content to insert goes in a \`<![CDATA[...]]>\` block.
-*   **\`<replace>\`**: Replaces a block of code. This is very robust.
-    *   **CRITICAL**: The content inside \`<source>\` **MUST BE ABSOLUTELY UNIQUE** within the file to avoid ambiguity.
-    *   **\`<source>\`**: The exact, original block of code to be replaced, wrapped in \`<![CDATA[...]]>\`.
-    *   **\`<new>\`**: The new code to replace the source block, wrapped in \`<![CDATA[...]]>\`.
-*   **\`<delete>\`**: Deletes a block of code. Also very robust.
-    *   **CRITICAL**: The content to delete **MUST BE ABSOLUTELY UNIQUE** within the file to avoid ambiguity.
-    *   Content to delete goes in a \`<![CDATA[...]]>\` block.
-
-*   **Example of a Structured Patch**:
-    \`\`\`xml
-    <changes>
-      <change file="src/App.tsx">
-        <description>Add a reset button.</description>
-        <insert after_line="const [count, setCount] = useState(0);">
-          <![CDATA[
-    const handleReset = () => setCount(0);
-          ]]>
-        </insert>
-        <replace>
-          <source><![CDATA[<button onClick={() => setCount(count + 1)}>Click me</button>]]></source>
-          <new><![CDATA[<button onClick={() => setCount(c => c + 1)}>Click me</button>
-    <button onClick={handleReset}>Reset</button>]]></new>
-        </replace>
-      </change>
-    </changes>
-    \`\`\`
-
----
-**METHOD 2: FULL CONTENT (FOR LARGE CHANGES)**
-Use this when creating a new file, performing a major refactor of an existing file, or when a structured patch would be too complex.
-
-*   **Operations**: Inside the \`<change>\` block, you will have a single \`<content>\` tag.
+3.  **METHOD: FULL CONTENT (THE ONLY METHOD)**
+    *   Inside the \`<change>\` block, you MUST have a single \`<content>\` tag.
     *   **\`<content>\`**: This tag MUST contain the **ENTIRE, NEW, FINAL CONTENT** of the file, wrapped in a \`<![CDATA[...]]>\` block.
-*   **To CREATE a new file**: Provide the new path in \`file="..."\` and the complete content in \`<content>\`.
-*   **To DELETE a file**: Provide the path in \`file="..."\` and leave the \`<content>\` tag **completely empty** (i.e., \`<content><![CDATA[]]></content>\`).
+    *   **To CREATE a new file**: Provide the new path in \`file="..."\` and the complete content in \`<content>\`.
+    *   **To DELETE a file**: Provide the path in \`file="..."\` and leave the \`<content>\` tag **completely empty** (i.e., \`<content><![CDATA[]]></content>\`).
+    *   **To REVERT a file**: If the user asks to "undo" or "revert", you will be provided with the previous version of the file. You must propose a change that replaces the current content with that previous version using this full content method.
 
 *   **Example of a Full Content change**:
     \`\`\`xml
@@ -187,9 +149,11 @@ Use this when creating a new file, performing a major refactor of an existing fi
 
     export default NewComponent;]]></content>
       </change>
+      <change file="src/OldComponent.js">
+        <content><![CDATA[]]></content>
+      </change>
     </changes>
     \`\`\`
----
 
 **GENERAL RULES FOR ALL MODIFICATIONS**
 *   **User Response**: Your visible response to the user should summarize what you've done.
@@ -200,20 +164,7 @@ Use this when creating a new file, performing a major refactor of an existing fi
 *   **Proactive Updates**: When you propose a code change, you MUST ALSO proactively update relevant documentation files (\`CHANGELOG.md\`, \`README.md\`, \`TODO.md\`) in the same \`<changes>\` block.
 ---
 `;
-
-  const fileHistoryInstruction = `
----
-SPECIAL INSTRUCTIONS: FILE VERSION HISTORY & UNDO
-The application automatically saves a version of a file before any change is applied. You can revert a file to its last saved state.
-
-1.  **TRIGGER**: The user will ask you to "undo", "revert", or "roll back" a change to a specific file.
-2.  **MECHANISM**: To perform an undo, you MUST propose a standard file change using the \`<changes>\` block. You do not need a special command.
-3.  **CONTEXT FOR UNDO**: If the application detects an undo request, it will provide the previous version of the requested file as context in a special section below.
-4.  **ACTION**: Your task is to take the content from the "PREVIOUS VERSION OF [file]" section and use it as the \`content\` for that file in your \`<changes>\` proposal (using the "FULL CONTENT" method). This will effectively revert the file.
-5.  **USER RESPONSE**: Inform the user that you are proposing to revert the file to its previous state.
----
-`;
-
+  
   const memoryContext = memory 
     ? `--- AI LONG-TERM MEMORY ---\n${memory}\n--- END AI LONG-TERM MEMORY ---\n` 
     : '--- AI LONG-TERM MEMORY ---\n(empty)\n--- END AI LONG-TERM MEMORY ---\n';
@@ -239,7 +190,7 @@ The application automatically saves a version of a file before any change is app
 ---
 FILE HISTORY CONTEXT (FOR UNDO/REVERT REQUESTS)
 The user has requested to undo a change for '${mentionedFile}'. The previous version of this file is provided below.
-Your task is to propose a file change that restores the file to this previous version.
+Your task is to propose a file change that restores the file to this previous version using the Full Content method.
 
 PREVIOUS VERSION of ${mentionedFile}:
 \`\`\`
@@ -257,7 +208,6 @@ ${previousFile.content}
   
   if (allFilePaths.length > 0) {
     instructions.push(fileModificationInstruction);
-    instructions.push(fileHistoryInstruction);
 
     const fileContents = projectFiles
       .map(file => `--- FILE: ${file.path} ---\n${file.content}\n--- END FILE: ${file.path} ---`)
@@ -348,70 +298,6 @@ export const streamChatResponse = async function* (
         yield chunk.text;
       }
     }
-};
-
-export const getAiFullFileContentForFallback = async (
-    filePath: string,
-    originalUserPrompt: string,
-    chatHistory: ChatMessage[],
-    files: UploadedFile[],
-    memory: string,
-    sessionSummary: string,
-    model: GeminiModel
-): Promise<string> => {
-    const fallbackPrompt = `
-    CRITICAL: SELF-HEALING PROTOCOL ACTIVATED.
-    A structured patch you previously generated for the file \`${filePath}\` failed to apply.
-    This was likely due to the file's content changing before the patch could be applied.
-
-    To recover from this, you MUST now provide the complete, new content for the file \`${filePath}\` that achieves the user's original goal.
-
-    Original user request was: "${originalUserPrompt}"
-
-    Your task is to re-evaluate the request based on the full project context and provide a single \`<changes>\` block containing the complete, final content for \`${filePath}\`.
-    DO NOT use a structured patch this time. Use the "Full Content" method.
-    DO NOT provide any other text, explanation, or conversational filler. Your entire response must be only the \`<changes>\` XML block.
-    `;
-
-    // We build the full context just like a normal request to ensure the AI has everything it needs.
-    const systemInstruction = buildSystemInstruction(fallbackPrompt, files, files.map(f => f.path), [], memory, sessionSummary);
-
-    const contents: ModelContent[] = [
-        ...chatHistory.map(message => ({
-            role: message.role,
-            parts: [{ text: message.content }]
-        })),
-        {
-            role: 'user',
-            parts: [{text: fallbackPrompt }]
-        }
-    ];
-
-    console.log(`Sending self-healing request for ${filePath}`);
-
-    const response = await callGeminiWithRetry<GenerateContentResponse>(() => 
-        ai.models.generateContent({
-            model,
-            contents,
-            config: {
-              systemInstruction,
-              temperature: 0.5, // Lower temperature for more deterministic recovery
-            }
-        })
-    );
-
-    const responseText = response.text;
-    if (!responseText) {
-        throw new Error("Self-healing failed: AI returned an empty response.");
-    }
-    
-    const fileUpdateRegex = /<changes>([\s\S]*?)<\/changes>/g;
-    const match = responseText.match(fileUpdateRegex);
-    if (!match || !match[0]) {
-        throw new Error("Self-healing failed: AI response did not contain a valid <changes> block.");
-    }
-    
-    return match[0];
 };
 
 export const summarizeSession = async (chatHistory: ChatMessage[], previousSummary: string): Promise<string> => {

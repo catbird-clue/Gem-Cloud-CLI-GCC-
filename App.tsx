@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { FileExplorer } from './components/FileExplorer';
 import { ChatInterface } from './components/ChatInterface';
@@ -10,9 +11,9 @@ import { WorkspaceNameModal } from './components/WorkspaceNameModal';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import type { UploadedFile, ChatMessage, ProposedChange, GeminiModel } from './types';
 import { AVAILABLE_MODELS } from './types';
-import { streamChatResponse, summarizeSession, getAiFullFileContentForFallback } from './services/geminiService';
+import { streamChatResponse, summarizeSession } from './services/geminiService';
 import { saveWorkspace, getWorkspace, getAllWorkspaceNames, deleteWorkspace, checkStoragePersistence } from './services/dbService';
-import { applyStructuredChanges } from './utils/patchUtils';
+import { extractFullContentFromChangeXml } from './utils/patchUtils';
 
 const MAX_HISTORY_LENGTH = 20; // Keep the last 20 file states
 
@@ -272,100 +273,47 @@ export default function App(): React.ReactElement {
     });
   }, []);
 
-  const handleApplyChanges = useCallback(async (changesToApply: ProposedChange[], rawXml?: string) => {
+  const handleApplyChanges = useCallback(async (changesToApply: ProposedChange[]) => {
     setFileHistory(prevHistory => [files, ...prevHistory].slice(0, MAX_HISTORY_LENGTH));
   
     const fileMap = new Map(files.map(f => [f.path, f]));
-    let appliedChangesCount = 0;
-    let failedChanges: string[] = [];
   
-    for (const change of changesToApply) {
-      const currentFile = fileMap.get(change.filePath);
-      const currentContent = currentFile?.content ?? '';
-  
-      try {
-        let finalContent: string;
-        // If it was a structured patch, try to re-apply it to the current content first.
-        if (change.rawXml) {
-          try {
-            console.log(`Attempting to apply structured patch for ${change.filePath}`);
-            finalContent = applyStructuredChanges(currentContent, change.rawXml);
-          } catch (patchError) {
-            console.warn(`Structured patch failed for ${change.filePath}:`, patchError);
-            throw new Error('Patch application failed, attempting self-heal.'); // Trigger self-healing
-          }
-        } else {
-          // It was a full-content change, just use it.
-          finalContent = change.newContent;
-        }
-
-        if (finalContent === '' && fileMap.has(change.filePath)) {
-            fileMap.delete(change.filePath);
-        } else if (finalContent !== '') {
-            fileMap.set(change.filePath, { path: change.filePath, content: finalContent });
-        }
-        appliedChangesCount++;
-      } catch (e) {
-        // Self-healing block for structured patch failures
-        console.log(`Initiating self-healing for ${change.filePath}...`);
-        setIsLoading(true);
-        setChatHistory(prev => [...prev, { role: 'model', content: `Patch for \`${change.filePath}\` failed. Attempting to self-heal...` }]);
-        
-        try {
-          // FIX: Replace findLast with a compatible alternative for older TS/JS targets.
-          const userPrompt = [...chatHistory].reverse().find(m => m.role === 'user')?.content || 'User request';
-          const fallbackXml = await getAiFullFileContentForFallback(change.filePath, userPrompt, chatHistory, files, aiMemory, sessionSummary, model);
-          
-          const parser = new DOMParser();
-          const xmlDoc = parser.parseFromString(fallbackXml, "application/xml");
-          const contentNode = xmlDoc.getElementsByTagName('content')[0];
-          
-          if (!contentNode) throw new Error("Self-healing failed: AI did not return valid full content.");
-
-          const finalContent = contentNode.textContent || '';
-          if (finalContent === '' && fileMap.has(change.filePath)) {
-            fileMap.delete(change.filePath);
-          } else if (finalContent !== '') {
-            fileMap.set(change.filePath, { path: change.filePath, content: finalContent });
-          }
-          setChatHistory(prev => [...prev.slice(0, -1), { role: 'model', content: `✅ Self-healing successful for \`${change.filePath}\`.` }]);
-          appliedChangesCount++;
-        } catch (fallbackError) {
-          console.error("Self-healing failed:", fallbackError);
-          const errorMessage = `Failed to apply changes for \`${change.filePath}\` even after self-healing attempt.`;
-          setChatHistory(prev => [...prev.slice(0,-1), { role: 'model', content: '', error: errorMessage }]);
-          failedChanges.push(change.filePath);
-        } finally {
-          setIsLoading(false);
-        }
+    changesToApply.forEach(change => {
+      const { filePath, newContent } = change;
+      // If newContent is empty, it signifies a file deletion.
+      if (newContent === '' && fileMap.has(filePath)) {
+        fileMap.delete(filePath);
+      } else if (newContent !== '') {
+        // This handles both creation of new files and updates to existing ones.
+        fileMap.set(filePath, { path: filePath, content: newContent });
       }
-    }
+    });
   
     setFiles(Array.from(fileMap.values()).sort((a, b) => a.path.localeCompare(b.path)));
   
     setModifiedFiles(currentModified => {
       const updatedModifiedFiles = { ...currentModified };
       changesToApply.forEach(change => {
-        if (!failedChanges.includes(change.filePath)) {
-            const finalFile = fileMap.get(change.filePath);
-            if (!finalFile) {
-                delete updatedModifiedFiles[change.filePath]; // Remove from modified list if deleted
-            } else {
-                updatedModifiedFiles[change.filePath] = (updatedModifiedFiles[change.filePath] || 0) + 1;
-            }
+        const finalFile = fileMap.get(change.filePath);
+        if (!finalFile) {
+            // File was deleted, remove from modified list.
+            delete updatedModifiedFiles[change.filePath]; 
+        } else {
+            // File was added or updated, mark as modified.
+            updatedModifiedFiles[change.filePath] = (updatedModifiedFiles[change.filePath] || 0) + 1;
         }
       });
       return updatedModifiedFiles;
     });
   
     setCurrentWorkspace('Current Session');
-    if (appliedChangesCount > 0) {
+    if (changesToApply.length > 0) {
         setChatHistory(prev => [...prev, {
             role: 'model',
-            content: `Applied ${appliedChangesCount} file change(s) to the project.`
+            content: `Applied ${changesToApply.length} file change(s) to the project.`
         }]);
     }
-  }, [files, chatHistory, aiMemory, sessionSummary, model]);
+  }, [files]);
 
 
   const handleStopGeneration = useCallback(() => {
@@ -656,7 +604,6 @@ export default function App(): React.ReactElement {
       
       let finalResponse = fullModelResponse;
       let proposedChanges: ProposedChange[] | undefined = undefined;
-      let rawXmlForChanges: string | undefined = undefined;
       
       finalResponse = finalResponse.replace(thoughtRegex, '').trim();
 
@@ -708,25 +655,12 @@ export default function App(): React.ReactElement {
             const oldFile = files.find(f => f.path === filePath);
             const oldContent = oldFile?.content ?? '';
             
-            let newContent = '';
-            let isPatch = false;
-
-            // Check if it's a structured patch or a full content change
-            const contentNode = changeNode.getElementsByTagName('content')[0];
-            if (contentNode) { // Full content change
-                newContent = contentNode.textContent || '';
-            } else { // Structured patch
-                isPatch = true;
-                const patchXml = changeNode.outerHTML;
-                rawXmlForChanges = patchXml; // Store raw XML for this change
-                newContent = applyStructuredChanges(oldContent, patchXml);
-            }
+            const newContent = extractFullContentFromChangeXml(changeNode.outerHTML);
             
             const change: ProposedChange = {
                 filePath,
                 oldContent,
                 newContent,
-                rawXml: isPatch ? rawXmlForChanges : undefined,
             };
 
             // Don't propose creating empty new files
@@ -763,7 +697,7 @@ export default function App(): React.ReactElement {
         if (lastMessage && lastMessage.role === 'model') {
           return [
             ...prev.slice(0, -1),
-            { ...lastMessage, content: finalResponse, proposedChanges, rawXml: rawXmlForChanges }
+            { ...lastMessage, content: finalResponse, proposedChanges }
           ];
         }
         return prev;

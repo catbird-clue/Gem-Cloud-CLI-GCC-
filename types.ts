@@ -13,8 +13,6 @@ export interface FileChange {
 // This is what we store in the ChatMessage state, after enriching it with the old content for diffing.
 export interface ProposedChange extends FileChange {
   oldContent: string;
-  // FIX: Add rawXml property to allow passing raw XML for structured patches. This resolves errors in App.tsx.
-  rawXml?: string;
 }
 
 export interface ChatMessage {
@@ -22,7 +20,6 @@ export interface ChatMessage {
   content: string;
   attachments?: { name: string }[];
   proposedChanges?: ProposedChange[];
-  rawXml?: string; // To pass the raw XML for structured patch application
   error?: string;
   warning?: string;
 }

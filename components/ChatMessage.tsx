@@ -7,7 +7,7 @@ interface ChatMessageProps {
   message: ChatMessageType;
   isStreaming?: boolean;
   isLoading?: boolean;
-  onApplyChanges: (changes: ProposedChange[], rawXml?: string) => void;
+  onApplyChanges: (changes: ProposedChange[]) => void;
 }
 
 export const ChatMessage = memo(({ message, isStreaming = false, isLoading = false, onApplyChanges }: ChatMessageProps): React.ReactElement => {
@@ -19,7 +19,7 @@ export const ChatMessage = memo(({ message, isStreaming = false, isLoading = fal
 
   const handleApply = () => {
     if (hasProposedChanges) {
-      onApplyChanges(message.proposedChanges!, message.rawXml);
+      onApplyChanges(message.proposedChanges!);
       setIsHandled(true);
       setAction('applied');
     }
