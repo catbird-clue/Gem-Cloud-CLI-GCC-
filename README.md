@@ -60,15 +60,22 @@ To ensure the application runs smoothly and reliably, please consider the follow
 
 Aggressive ad-blockers can sometimes interfere with the application's core functionality by blocking requests to necessary services. For uninterrupted operation, it is highly recommended to "whitelist" this application or add the following domains to your ad-blocker's allowlist:
 
-*   `generativelanguage.googleapis.com`: **(CRITICAL)** This is the domain for the Gemini API. If this is blocked, the AI will not be able to respond to your prompts.
+*   `generativelenanguage.googleapis.com`: **(CRITICAL)** This is the domain for the Gemini API. If this is blocked, the AI will not be able to respond to your prompts.
 *   `esm.sh`: This is a Content Delivery Network (CDN) used to load essential application libraries like React. If blocked, the application may not load at all.
 *   `cdn.tailwindcss.com`: This CDN provides the styling for the user interface. If blocked, the application will work but appear unstyled.
+
+### Browser Storage and URL Consistency
+
+**CRITICAL:** The "Workspaces" feature saves your files in your browser's IndexedDB storage. Due to a browser security feature called the **"Same-Origin Policy"**, this storage is tied to the **exact URL** in your address bar.
+
+*   **Symptom:** If you save a workspace and it seems to have "disappeared" the next time you open the app, it is because you have opened the app using a slightly different URL. For example, navigating through different links within AI Studio (`aistudio.google.com/apps`, `aistudio.google.com/apps?source=user...`) can change the final URL.
+*   **Solution:** To ensure your workspaces are always accessible, **you must always use the same, consistent URL to open this application.** We recommend bookmarking the direct link to the application after you open it for the first time and using that bookmark exclusively.
 
 ### Container Extensions (e.g., Firefox Multi-Account Containers)
 
 These extensions are excellent for privacy but they work by isolating website data (including saved workspaces in IndexedDB) into separate "containers".
 
-*   **Symptom:** If you save a workspace and it seems to have "disappeared" the next time you open the app, it's likely because you are opening the app in a different container (or no container).
+*   **Symptom:** Similar to the URL issue, if you save a workspace in one container and then open the app in a different container (or no container), your workspaces will not be visible.
 *   **Solution:** To ensure your workspaces are always available, **always open the application in the same, consistent container**. We recommend creating a dedicated container (e.g., "Development") and configuring it to always open this application's URL.
 
 ---
