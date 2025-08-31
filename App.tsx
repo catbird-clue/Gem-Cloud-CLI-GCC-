@@ -702,9 +702,9 @@ export default function App(): React.ReactElement {
           const generatedChanges: ProposedChange[] = [];
           
           for (const changeNode of Array.from(changeNodes)) {
-            const filePathNode = changeNode.getElementsByTagName('file')[0];
-            if (!filePathNode) continue;
-            const filePath = filePathNode.textContent || '';
+            const filePath = changeNode.getAttribute('file');
+            if (!filePath) continue;
+            
             const oldFile = files.find(f => f.path === filePath);
             const oldContent = oldFile?.content ?? '';
             

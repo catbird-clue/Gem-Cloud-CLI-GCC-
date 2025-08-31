@@ -1,5 +1,17 @@
 
 /**
+ * Counts the occurrences of a substring within a larger string.
+ * @param mainStr The string to search within.
+ * @param subStr The substring to count.
+ * @returns The number of non-overlapping occurrences.
+ */
+const countOccurrences = (mainStr: string, subStr: string): number => {
+    if (!subStr) return 0;
+    // Using split is a simple way to count non-overlapping occurrences.
+    return mainStr.split(subStr).length - 1;
+};
+
+/**
  * Applies a structured patch from an XML string to the original content of a file.
  * This function is the core of the token-efficient "Structured Patch" mechanism.
  * @param originalContent The original string content of the file.
@@ -84,8 +96,12 @@ export function applyStructuredChanges(originalContent: string, patchXmlString: 
           const sourceContent = sourceNode.textContent ?? '';
           const newContent = newNode.textContent ?? '';
 
-          if (!modifiedContent.includes(sourceContent)) {
-            throw new Error(`Replace failed: source content not found in the file.`);
+          const occurrences = countOccurrences(modifiedContent, sourceContent);
+          if (occurrences === 0) {
+              throw new Error(`Replace failed: source content not found in the file.`);
+          }
+          if (occurrences > 1) {
+              throw new Error(`Replace failed: source content is not unique in the file. Cannot apply ambiguous change.`);
           }
           modifiedContent = modifiedContent.replace(sourceContent, newContent);
           break;
@@ -93,8 +109,12 @@ export function applyStructuredChanges(originalContent: string, patchXmlString: 
 
         case 'delete': {
             const deleteContent = node.textContent ?? '';
-            if (!modifiedContent.includes(deleteContent)) {
+            const occurrences = countOccurrences(modifiedContent, deleteContent);
+            if (occurrences === 0) {
               throw new Error(`Delete failed: content to delete not found in the file.`);
+            }
+            if (occurrences > 1) {
+              throw new Error(`Delete failed: content to delete is not unique in the file. Cannot apply ambiguous change.`);
             }
             modifiedContent = modifiedContent.replace(deleteContent, '');
             break;
