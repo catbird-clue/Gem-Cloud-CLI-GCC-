@@ -16,6 +16,7 @@ interface FileExplorerProps {
   onOpenSummaryViewer: () => void;
   onSaveSessionSummary: () => void;
   onViewFile: (file: UploadedFile) => void;
+  onViewDiff: (file: UploadedFile) => void;
   onAddChatMessage: (message: string) => void;
   onAcknowledgeFileChange: (filePath: string) => void;
   onSaveWorkspace: () => void;
@@ -28,6 +29,7 @@ interface FileTreeProps {
   modifiedFiles: Record<string, number>;
   onDownloadFile: (file: UploadedFile) => void;
   onViewFile: (file: UploadedFile) => void;
+  onViewDiff: (file: UploadedFile) => void;
   level?: number;
 }
 
@@ -85,7 +87,7 @@ const buildFileTree = (files: UploadedFile[]): FileTreeNode => {
 };
 
 
-const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, level = 0 }: FileTreeProps): React.ReactElement => {
+const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, onViewDiff, level = 0 }: FileTreeProps): React.ReactElement => {
   return (
     <div>
       {(Object.entries(node) as [string, TreeNodeValue][])
@@ -98,15 +100,32 @@ const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, level = 0 }
           if (value.type === 'file' && value.file) {
             const file = value.file;
             const modificationCount = modifiedFiles[file.path] || 0;
+            const isModified = modificationCount > 0;
+            
+            const handleFileClick = () => {
+              if (isModified) {
+                onViewDiff(file);
+              } else {
+                onViewFile(file);
+              }
+            };
+            
             return (
               <div key={name} style={{ paddingLeft: `${level * 1}rem` }}>
-                <div className="group flex items-center justify-between p-1 text-sm hover:bg-gray-700 rounded-md cursor-default">
+                <div 
+                  className="group flex items-center justify-between p-1 text-sm hover:bg-gray-700 rounded-md"
+                  onClick={handleFileClick}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleFileClick()}
+                  title={isModified ? `Click to review changes for ${name}` : `Click to view ${name}`}
+                >
                   <div className="flex items-center truncate">
                     <FileIcon className="w-4 h-4 mr-2 flex-shrink-0" />
-                    <span className={`truncate ${modificationCount > 0 ? 'text-green-400 font-medium' : 'text-gray-400'}`}>
+                    <span className={`truncate ${isModified ? 'text-green-400 font-medium cursor-pointer' : 'text-gray-400 cursor-default'}`}>
                       {name}
                     </span>
-                    {modificationCount > 0 && (
+                    {isModified && (
                       <span className="ml-2 bg-green-800/50 text-green-300 text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center flex-shrink-0">
                         {modificationCount}
                       </span>
@@ -114,16 +133,16 @@ const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, level = 0 }
                   </div>
                   <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
-                      onClick={() => onViewFile(file)}
+                      onClick={(e) => { e.stopPropagation(); onViewFile(file); }}
                       className="p-1 text-gray-400 hover:text-indigo-400"
-                      title={`View ${name}`}
-                      aria-label={`View ${name}`}
+                      title={`View current version of ${name}`}
+                      aria-label={`View current version of ${name}`}
                     >
                       <EyeIcon className="w-4 h-4" />
                     </button>
-                    {modificationCount > 0 && (
+                    {isModified && (
                        <button
-                        onClick={() => onDownloadFile(file)}
+                        onClick={(e) => { e.stopPropagation(); onDownloadFile(file); }}
                         className="p-1 text-gray-400 hover:text-indigo-400"
                         title={`Download ${name}`}
                         aria-label={`Download ${name}`}
@@ -143,7 +162,7 @@ const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, level = 0 }
                     <FolderIcon className="w-4 h-4 mr-2 flex-shrink-0" />
                     <span className="truncate">{name}</span>
                   </div>
-                  {value.children && <FileTree node={value.children} level={level + 1} modifiedFiles={modifiedFiles} onDownloadFile={onDownloadFile} onViewFile={onViewFile} />}
+                  {value.children && <FileTree node={value.children} level={level + 1} modifiedFiles={modifiedFiles} onDownloadFile={onDownloadFile} onViewFile={onViewFile} onViewDiff={onViewDiff} />}
                 </div>
               </div>
             )
@@ -153,7 +172,7 @@ const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, level = 0 }
   );
 };
 
-export const FileExplorer = ({ files, modifiedFiles, model, isSummarizing, sessionSummary, onFileUpload, onClearFiles, onOpenMemoryEditor, onOpenSummaryViewer, onSaveSessionSummary, onViewFile, onAddChatMessage, onAcknowledgeFileChange, workspaces, currentWorkspace, onSaveWorkspace, onLoadWorkspace, onDeleteWorkspace }: FileExplorerProps): React.ReactElement => {
+export const FileExplorer = ({ files, modifiedFiles, model, isSummarizing, sessionSummary, onFileUpload, onClearFiles, onOpenMemoryEditor, onOpenSummaryViewer, onSaveSessionSummary, onViewFile, onViewDiff, onAddChatMessage, onAcknowledgeFileChange, workspaces, currentWorkspace, onSaveWorkspace, onLoadWorkspace, onDeleteWorkspace }: FileExplorerProps): React.ReactElement => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileTree = useMemo(() => buildFileTree(files || []), [files]);
@@ -296,7 +315,7 @@ export const FileExplorer = ({ files, modifiedFiles, model, isSummarizing, sessi
       </div>
       <div className="flex-1 p-2 overflow-y-auto">
         {hasFiles ? (
-          <FileTree node={fileTree} modifiedFiles={modifiedFiles} onDownloadFile={handleDownloadFile} onViewFile={onViewFile} />
+          <FileTree node={fileTree} modifiedFiles={modifiedFiles} onDownloadFile={handleDownloadFile} onViewFile={onViewFile} onViewDiff={onViewDiff} />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 p-4">
             <UploadIcon className="w-12 h-12 mb-4" />

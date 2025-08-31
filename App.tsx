@@ -3,6 +3,7 @@ import { FileExplorer } from './components/FileExplorer';
 import { ChatInterface } from './components/ChatInterface';
 import { MemoryEditor } from './components/MemoryEditor';
 import { FileViewer } from './components/FileViewer';
+import { FileDiffViewer } from './components/FileDiffViewer';
 import { SessionSummaryViewer } from './components/SessionSummaryViewer';
 import { WorkspaceNameModal } from './components/WorkspaceNameModal';
 import { ConfirmationModal } from './components/ConfirmationModal';
@@ -26,6 +27,7 @@ export default function App(): React.ReactElement {
   const [isMemoryEditorOpen, setIsMemoryEditorOpen] = useState(false);
   const [isSummaryViewerOpen, setIsSummaryViewerOpen] = useState(false);
   const [viewingFile, setViewingFile] = useState<UploadedFile | null>(null);
+  const [viewingDiff, setViewingDiff] = useState<{ oldFile: UploadedFile; newFile: UploadedFile } | null>(null);
   const [aiThought, setAiThought] = useState<string | null>(null);
   const [workspaces, setWorkspaces] = useState<string[]>([]);
   const [currentWorkspace, setCurrentWorkspace] = useState<string>('Current Session');
@@ -373,6 +375,7 @@ export default function App(): React.ReactElement {
         
         return { success: true };
     } catch (e) {
+        // Log the detailed error for debugging, but return a simple failure signal.
         console.error("Failed to apply structured changes:", e);
         return { success: false, error: e instanceof Error ? e.message : "An unknown error occurred." };
     }
@@ -382,31 +385,42 @@ export default function App(): React.ReactElement {
   const handleApplyChanges = useCallback((changesToApply: ProposedChange[], rawXml?: string) => {
     setFileHistory(prevHistory => [files, ...prevHistory].slice(0, MAX_HISTORY_LENGTH));
     
-    let appliedCount = 0;
+    let appliedSuccessfully = false;
     
     // Prioritize the new structured patch format if available
     if (rawXml) {
       const result = applyStructuredChanges(rawXml);
       if (result.success) {
-        // Count is inferred from the number of changes in the original proposal
-        appliedCount = changesToApply.length;
+        appliedSuccessfully = true;
       } else {
-        // Fallback to full file changes if structured application fails.
-        console.warn("Structured patch failed, falling back to full file content replacement.", result.error);
-        applyFullFileChanges(changesToApply);
-        appliedCount = changesToApply.length;
+        // Fallback to full file changes if structured application fails, without notifying the user.
+        console.warn("Structured patch failed, falling back to full file content replacement. Details:", result.error);
+        try {
+          applyFullFileChanges(changesToApply);
+          appliedSuccessfully = true;
+        } catch(fallbackError) {
+          console.error("Full file content fallback also failed:", fallbackError);
+          // If even the fallback fails, we show an error.
+          setChatHistory(prev => [...prev, {
+            role: 'model',
+            content: '',
+            error: `Failed to apply changes, even after a fallback attempt. Error: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`
+          }]);
+        }
       }
     } else {
-      // Legacy path for old format
+      // Legacy path for old format (without structured patches)
       applyFullFileChanges(changesToApply);
-      appliedCount = changesToApply.length;
+      appliedSuccessfully = true;
     }
     
-    setCurrentWorkspace('Current Session');
-    setChatHistory(prev => [...prev, {
-      role: 'model',
-      content: `Applied ${appliedCount} file change(s) to the project.`
-    }]);
+    if (appliedSuccessfully) {
+        setCurrentWorkspace('Current Session');
+        setChatHistory(prev => [...prev, {
+          role: 'model',
+          content: `Applied ${changesToApply.length} file change(s) to the project.`
+        }]);
+    }
   }, [files, applyFullFileChanges, applyStructuredChanges]);
 
   const handleStopGeneration = useCallback(() => {
@@ -417,6 +431,52 @@ export default function App(): React.ReactElement {
     setViewingFile(file);
   }, []);
   
+  const handleViewDiff = useCallback((file: UploadedFile) => {
+    if (fileHistory.length === 0) {
+        // If there's no history, just view the current file.
+        setViewingFile(file);
+        return;
+    }
+    const previousVersion = fileHistory[0].find(f => f.path === file.path);
+    if (previousVersion) {
+        setViewingDiff({ oldFile: previousVersion, newFile: file });
+    } else {
+        // If no previous version is found (e.g., a new file), just view it.
+        setViewingFile(file);
+    }
+  }, [fileHistory]);
+  
+  const handleRevertFile = useCallback((filePath: string) => {
+    const fileToRevert = viewingDiff?.oldFile;
+    if (!fileToRevert) return;
+    
+    setFileHistory(prev => [files, ...prev].slice(0, MAX_HISTORY_LENGTH));
+
+    setFiles(currentFiles => {
+        const fileIndex = currentFiles.findIndex(f => f.path === filePath);
+        if (fileIndex !== -1) {
+            const updatedFiles = [...currentFiles];
+            updatedFiles[fileIndex] = fileToRevert;
+            return updatedFiles;
+        }
+        return currentFiles; // Should not happen if we are reverting
+    });
+
+    // We don't increment the modified counter on revert, we can just remove it or leave it.
+    // Let's remove it to signify it's back to a "saved" state from history.
+    setModifiedFiles(currentModified => {
+        const updatedModified = { ...currentModified };
+        delete updatedModified[filePath];
+        return updatedModified;
+    });
+
+    setViewingDiff(null);
+    setChatHistory(prev => [...prev, {
+        role: 'model',
+        content: `Reverted changes for \`${filePath}\`.`
+    }]);
+  }, [files, viewingDiff]);
+
   const handleAddChatMessage = useCallback((content: string) => {
     setChatHistory(prev => [...prev, { role: 'model', content }]);
   }, []);
@@ -833,6 +893,7 @@ export default function App(): React.ReactElement {
         onOpenSummaryViewer={() => setIsSummaryViewerOpen(true)}
         onSaveSessionSummary={handleSaveSessionSummary}
         onViewFile={handleViewFile}
+        onViewDiff={handleViewDiff}
         onAddChatMessage={handleAddChatMessage}
         onAcknowledgeFileChange={handleAcknowledgeFileChange}
         onSaveWorkspace={handleOpenSaveWorkspaceModal}
@@ -858,6 +919,11 @@ export default function App(): React.ReactElement {
       <FileViewer
         file={viewingFile}
         onClose={() => setViewingFile(null)}
+      />
+      <FileDiffViewer
+        diff={viewingDiff}
+        onClose={() => setViewingDiff(null)}
+        onRevert={handleRevertFile}
       />
       <SessionSummaryViewer
         isOpen={isSummaryViewerOpen}
