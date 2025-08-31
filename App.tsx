@@ -248,10 +248,8 @@ export default function App(): React.ReactElement {
       ]);
     } catch (err) {
       console.error("Failed to summarize session:", err);
-      let detail = err instanceof Error ? err.message : 'Unknown error';
-      if (err instanceof Error && detail.toLowerCase().includes('quota')) {
-          detail = "The API is busy after several retries. Please wait a moment and try again.";
-      }
+      // The service layer now provides a more user-friendly message for quota errors.
+      const detail = err instanceof Error ? err.message : 'Unknown error';
       const errorMessage = `Failed to generate summary: ${detail}`;
       setChatHistory(prev => [
         ...prev.slice(0, -1),
@@ -622,9 +620,16 @@ export default function App(): React.ReactElement {
     } catch (err) {
       console.error("Gemini API error:", err);
       let detail = err instanceof Error ? err.message : "An unexpected error occurred. Please check the console for details.";
+      
+      // Improved quota error handling
       if (detail.toLowerCase().includes('quota')) {
-        detail = "The request rate is too high, and the server is still busy after several retries. Please wait a moment and try your request again.";
+        if (detail.toLowerCase().includes('plan and billing')) {
+          detail = "You have exceeded your usage quota (e.g., daily limit). Please check your Google AI Platform plan and billing details. The quota typically resets at midnight PST.";
+        } else {
+          detail = "The request rate is too high (requests per minute). The app retried, but the server remained busy. Please wait a moment before trying again.";
+        }
       }
+      
       const errorMessage = `Gemini API Error: ${detail}`;
       
        setChatHistory(prev => {

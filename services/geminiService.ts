@@ -370,6 +370,15 @@ Now, generate the new, consolidated summary. Output ONLY the summary text, nothi
         return summary.trim();
     } catch (error) {
         console.error("Error summarizing session:", error);
-        throw new Error("Failed to generate session summary from the AI.");
+        let detail = error instanceof Error ? error.message : 'Unknown error';
+        if (error instanceof Error && detail.toLowerCase().includes('quota')) {
+            if (detail.toLowerCase().includes('plan and billing')) {
+                detail = "You have exceeded your usage quota (e.g., daily limit). Please check your Google AI Platform plan and billing details. The quota typically resets at midnight PST.";
+            } else {
+                detail = "The request rate is too high (requests per minute). The app retried, but the server remained busy. Please wait a moment before trying again.";
+            }
+        }
+        // Re-throw with the more user-friendly message
+        throw new Error(`Failed to generate session summary: ${detail}`);
     }
 };
