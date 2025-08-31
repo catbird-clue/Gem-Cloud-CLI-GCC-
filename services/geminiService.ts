@@ -141,7 +141,8 @@ You have the ability to propose changes to the user's project files using a robu
     -   Inside each \`<change>\`, you can use one or more of the following operation tags:
         -   **\`${'<insert after_line="UNIQUE_ANCHOR_LINE">'}\`** or **\`${'<insert before_line="UNIQUE_ANCHOR_LINE">'}\`**:
             -   Use this to add new code.
-            -   The \`after_line\` or \`before_line\` attribute MUST contain a sufficiently unique line from the file to serve as an anchor. Do not use generic lines like "{" or "</div>".
+            -   The \`after_line\` or \`before_line\` attribute MUST contain a sufficiently unique line from the file to serve as an anchor.
+            -   **CRITICAL ANCHOR RULE**: The anchor line must be chosen carefully. It **MUST NOT** contain any server-side templating syntax (e.g., \`<?= ... ?>\`, \`<% ... %>\`). Instead, choose a simple, static line of code nearby. Avoid generic lines like "{" or "</div>". If the anchor line contains special XML characters (\`<\`, \`>\`, \`&\`), they must be escaped (e.g., \`&lt;\`, \`&gt;\`, \`&amp;\`).
             -   The content to be inserted goes inside a \`<![CDATA[...]]>\` block.
             -   For creating a **new file**, use a single \`<insert>\` tag without any attributes (\`${'<insert>'}\`).
         -   **\`${'<replace>'}\`**:
