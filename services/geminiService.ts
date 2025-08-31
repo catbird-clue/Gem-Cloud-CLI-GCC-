@@ -146,9 +146,10 @@ You have the ability to propose changes to the user's project files using a robu
             -   The content to be inserted goes inside a \`<![CDATA[...]]>\` block.
             -   For creating a **new file**, use a single \`<insert>\` tag without any attributes (\`${'<insert>'}\`).
         -   **\`${'<replace>'}\`**:
-            -   Use this to replace a specific block of code. This is very robust.
+            -   Use this to replace a specific block of code. This is very robust **if used correctly**.
             -   It MUST contain two children: \`<source><![CDATA[...]]></source>\` and \`<new><![CDATA[...]]></new>\`.
-            -   The \`<source>\` block must contain the *exact, verbatim* lines of code to be replaced.
+            -   **CRITICAL RULE for \`<source>\`**: The content inside \`<source>\` MUST be a 100% character-for-character match of the code in the file. To ensure this, you must mentally **"copy"** the block of code from the file provided in the context, and **"paste"** it into the \`<source>\` tag. Do not re-type it or reconstruct it from memory. Any mismatch, including whitespace or line endings, will cause the operation to fail.
+            -   **FALLBACK**: If a block of code is very long, or you are not 100% certain you can reproduce it verbatim in the \`<source>\` tag, **DO NOT use \`<replace>\`**. Instead, use a combination of \`<delete>\` and \`<insert>\`. Use \`<delete>\` on a smaller, guaranteed-to-be-unique part of the code block, and then use \`<insert>\` with a reliable anchor to add the new version.
         -   **\`${'<delete>'}\`**:
             -   Use this to delete a specific block of code.
             -   The content to be deleted must be placed, *exactly as it appears in the file*, inside a \`<![CDATA[...]]>\` block.
