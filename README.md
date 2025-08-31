@@ -9,8 +9,7 @@ Welcome to Gemini Cloud CLI, a web-based interface designed for collaborative so
 *   **Project Upload:** Upload your entire project folder to provide the AI with full context of your codebase.
 *   **Interactive Chat:** Communicate with Gemini to ask questions, request code changes, or generate new features. You can attach files directly to a prompt for one-off questions, stop generation at any time, and see the AI's real-time "thoughts" as it works.
 *   **File Management:** The AI can propose creating new files or modifying existing ones. You can review these changes in a user-friendly diff format and apply them with a single click.
-*   **Workspaces (Project Snapshots):** Save your entire set of uploaded files as a named "workspace". This allows you to quickly reload a complete project snapshot in a future session. Workspaces are stored securely and reliably in your browser's **IndexedDB**.
-*   **Persistent Memory System:** The AI utilizes a two-part memory system stored as files within your project, ensuring context is never lost between sessions.
+*   **Persistent Memory System:** The AI utilizes a two-part memory system stored as files within your project, ensuring context is never lost between sessions if you re-upload the same project.
 *   **Chat Export:** Save your entire conversation, including code changes, to a local Markdown file for your records.
 
 ---
@@ -42,13 +41,13 @@ This file is the AI's short-term memory for the **current task**. As your conver
 ## Getting Started: Typical Workflow
 
 1.  **Prepare Your Project:** Create a folder named `AI_Memory` inside your project directory.
-2.  **Upload:** Click the **"Upload Project Folder"** button and select your main project folder. Alternatively, if you have saved a workspace before, select it from the dropdown menu.
+2.  **Upload:** Click the **"Upload Project Folder"** button and select your main project folder.
 3.  **Start Chatting:** Begin a conversation with the AI. You can ask it to review your code, suggest improvements, or implement a new feature. For questions about specific files not in the main project, use the paperclip icon to attach them to your prompt.
 4.  **Manage Context:** As the conversation progresses, use the **"Save session summary"** button to keep the AI up-to-date on the current task, especially when the Context Health indicator changes color.
 5.  **Apply Changes:** When the AI proposes file modifications, review the diffs presented in the chat and click **"Apply Changes"** to integrate them into your project files.
 6.  **Download:** Modified files will be highlighted in the File Explorer. Use the download icon that appears on hover to save them to your local machine.
-7.  **Save Your Work:** If you plan to return to this project, click the save icon in the "Workspace" section to save your current file set as a named workspace. Next time you open the app, you can load it instantly from the dropdown menu.
-8.  **Export History:** When you're done, you can export the entire chat conversation as a Markdown file using the export button at the top of the chat panel.
+7.  **Export History:** When you're done, you can export the entire chat conversation as a Markdown file using the export button at the top of the chat panel.
+8.  **Clear Session:** To start over, click the trash can icon in the File Explorer header to clear all files and reset the application.
 
 ---
 
@@ -64,20 +63,6 @@ Aggressive ad-blockers can sometimes interfere with the application's core funct
 *   `esm.sh`: This is a Content Delivery Network (CDN) used to load essential application libraries like React. If blocked, the application may not load at all.
 *   `cdn.tailwindcss.com`: This CDN provides the styling for the user interface. If blocked, the application will work but appear unstyled.
 
-### Browser Storage and URL Consistency
-
-**CRITICAL:** The "Workspaces" feature saves your files in your browser's IndexedDB storage. Due to a browser security feature called the **"Same-Origin Policy"**, this storage is tied to the **exact URL** in your address bar.
-
-*   **Symptom:** If you save a workspace and it seems to have "disappeared" the next time you open the app, it is because you have opened the app using a slightly different URL. For example, navigating through different links within AI Studio (`aistudio.google.com/apps`, `aistudio.google.com/apps?source=user...`) can change the final URL.
-*   **Solution:** To ensure your workspaces are always accessible, **you must always use the same, consistent URL to open this application.** We recommend bookmarking the direct link to the application after you open it for the first time and using that bookmark exclusively.
-
-### Container Extensions (e.g., Firefox Multi-Account Containers)
-
-These extensions are excellent for privacy but they work by isolating website data (including saved workspaces in IndexedDB) into separate "containers".
-
-*   **Symptom:** Similar to the URL issue, if you save a workspace in one container and then open the app in a different container (or no container), your workspaces will not be visible.
-*   **Solution:** To ensure your workspaces are always available, **always open the application in the same, consistent container**. We recommend creating a dedicated container (e.g., "Development") and configuring it to always open this application's URL.
-
 ---
 
 ## For Developers
@@ -87,7 +72,6 @@ This application is built with:
 *   **React** & **TypeScript** for the frontend interface.
 *   **TailwindCSS** for styling.
 *   **@google/genai** SDK to communicate with the Gemini API.
-*   **IndexedDB** for client-side storage of workspaces.
 
 The application is a single-page app with no backend or build process. All code is contained within `index.html` and `index.tsx`. The AI's instructions, which dictate its behavior (including the file modification format), are located in `services/geminiService.ts`.
 
