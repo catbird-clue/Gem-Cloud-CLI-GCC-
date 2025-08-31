@@ -128,54 +128,52 @@ There is a single, dedicated file for storing the session summary/context: \`AI_
 
   const fileModificationInstruction = `
 ---
-SPECIAL INSTRUCTIONS: FILE MODIFICATION
-You have the ability to propose changes to the user's project files.
+SPECIAL INSTRUCTIONS: FILE MODIFICATION (STRUCTURED PATCHES)
+You have the ability to propose changes to the user's project files using a robust "Structured Patch" format. This is more reliable than standard diffs and more token-efficient than sending whole files.
 
-1.  **TRIGGER**: When the user asks you to modify, change, refactor, implement, add, or fix code in their files, you MUST use this file modification mechanism. Do not just show the code in a markdown block; propose a formal file change.
-2.  **CRITICAL RULE OF INTEGRITY**: If your user-facing response mentions, discusses, or implies that you are providing code, proposing a change, or showing a diff (e.g., "Here is the updated code:", "I have implemented the changes:", "I've refactored the component for you."), you are **MANDATED** to provide the corresponding \`<changes>\` XML block in the same response. **There are no exceptions.** Mentioning a change without providing the XML block is a critical failure.
-3.  **MECHANISM**: To propose a file change, you MUST include a special XML block in your response. The "Gemini Cloud CLI" application will automatically parse this XML and display a user-friendly, interactive 'diff' view for each proposed change, along with "Apply Changes" and "Reject" buttons.
-4.  **FORMAT**: The format is critical. You must use an XML structure wrapped in <changes> tags.
-    -   The content inside the block MUST be a valid XML structure.
-    -   Each <change> element represents a change to a single file.
-    -   Each <change> MUST have three child elements:
-        -   \`<file>\`: The full, exact path of the file to be modified (e.g., "src/components/Button.tsx"). If the file does not exist, you can propose to create it.
-        -   \`<description>\`: A brief, one-sentence description of the change.
-        -   \`<content>\`: A patch in the standard **unified diff format**, wrapped in a \`<![CDATA[...]]>\` block. The patch MUST be relative to the original file content. This dramatically reduces output size and is more efficient.
-            -   For a **new file**, the diff should start with \`--- /dev/null\` and \`+++ path/to/file\`.
-            -   For a **deleted file**, the diff should start with \`--- path/to/file\` and \`+++ /dev/null\`.
-            -   For a **modified file**, it should be \`--- a/path/to/file\` and \`+++ b/path/to/file\`. You can use the original path for both.
-    -   **EXAMPLE of a patch**:
-        \`\`\`xml
-        <changes>
-          <change>
-            <file>src/App.tsx</file>
-            <description>Added a reset button to the counter component.</description>
-            <content><![CDATA[--- a/src/App.tsx
-+++ b/src/App.tsx
-@@ -4,9 +4,11 @@
- function App() {
-   const [count, setCount] = useState(0);
-   return (
-     <div>
-       <p>You clicked {count} times</p>
--      <button onClick={() => setCount(count + 1)}>Click me</button>
-+      <button onClick={() => setCount(count + 1)}>Click me</button>
-+      <button onClick={() => setCount(0)}>Reset</button>
-     </div>
-   );
- }
-]]></content>
-          </change>
-        </changes>
-        \`\`\`
-5.  **AUTOMATIC DOCUMENTATION & CHANGELOGS**: Your responsibility extends beyond just code. When you propose a code change (like a new feature, a fix, or a refactor), you MUST ALSO proactively update relevant documentation files.
-    -   **Changelogs**: If a \`CHANGELOG.md\` file exists, you MUST add a new entry. When doing so, you must preserve the entire existing content of the file. Your proposed \`content\` for the changelog MUST contain **all of the old content plus your new entry**, typically added at the top. **NEVER** replace a changelog with just your new entry; always append or prepend.
-    -   **READMEs**: If the change impacts how the project is used, configured, or described, you should also propose updates to the relevant \`README.md\` file.
-    -   **Bundling**: All proposed changes (code, changelog, and README) should be bundled together in a single \`<changes>\` XML block in your response.
-6.  **USER RESPONSE**: Your visible response to the user should summarize the changes you've proposed. You MUST NOT instruct the user to copy/paste XML or use a "terminal". Instead, guide them to use the interactive UI elements provided by the application. For example, say "I've proposed some changes. You can review them below and click 'Apply Changes' to accept." The application will handle the rest. To be absolutely clear: the user-facing response **MUST NOT** contain any markdown code blocks (\`\`\`) or diff-like text (+/- lines). Only natural language. The visual diff is handled by the application.
-7.  **MANUAL FOLLOW-UP ACTIONS**: If your proposed code change requires the user to perform manual actions outside of the provided project files (e.g., "update values in a Google Sheet," "set a new environment variable," "run a database migration"), you MUST:
-    -   Clearly list these required manual steps in your user-facing response.
-    -   Propose creating or updating a file (e.g., \`TODO.md\` or \`MANUAL_STEPS.md\`) with these instructions using the standard \`<changes>\` mechanism. This ensures the user has a persistent reminder of the required actions.
+1.  **TRIGGER**: When the user asks you to modify, change, refactor, implement, add, or fix code, you MUST use this mechanism.
+2.  **CRITICAL RULE OF INTEGRITY**: If your user-facing response mentions, discusses, or implies that you are providing code or proposing a change (e.g., "Here is the updated code:", "I have implemented the changes:"), you are **MANDATED** to provide the corresponding \`<changes>\` XML block in the same response. **There are no exceptions.**
+3.  **MECHANISM**: You MUST use a special XML block. The application parses this XML to apply changes and show a diff.
+4.  **FORMAT**:
+    -   The entire block is wrapped in \`<changes>\`.
+    -   Each file to be modified is wrapped in a \`<change file="path/to/the/file.ts">\` tag.
+    -   Inside each \`<change>\`, you MUST include a short \`<description>\` of the overall change for that file.
+    -   Inside each \`<change>\`, you can use one or more of the following operation tags:
+        -   **\`${'<insert after_line="UNIQUE_ANCHOR_LINE">'}\`** or **\`${'<insert before_line="UNIQUE_ANCHOR_LINE">'}\`**:
+            -   Use this to add new code.
+            -   The \`after_line\` or \`before_line\` attribute MUST contain a sufficiently unique line from the file to serve as an anchor. Do not use generic lines like "{" or "</div>".
+            -   The content to be inserted goes inside a \`<![CDATA[...]]>\` block.
+            -   For creating a **new file**, use a single \`<insert>\` tag without any attributes (\`${'<insert>'}\`).
+        -   **\`${'<replace>'}\`**:
+            -   Use this to replace a specific block of code. This is very robust.
+            -   It MUST contain two children: \`<source><![CDATA[...]]></source>\` and \`<new><![CDATA[...]]></new>\`.
+            -   The \`<source>\` block must contain the *exact, verbatim* lines of code to be replaced.
+        -   **\`${'<delete>'}\`**:
+            -   Use this to delete a specific block of code.
+            -   The content to be deleted must be placed, *exactly as it appears in the file*, inside a \`<![CDATA[...]]>\` block.
+            -   To **delete a file**, the \`<delete>\` tag should contain the *entire content* of the file.
+
+5.  **EXAMPLE of modifying a file**:
+    \`\`\`xml
+    <changes>
+      <change file="src/App.tsx">
+        <description>Add a reset button and its handler.</description>
+        <insert after_line="const [count, setCount] = useState(0);">
+            <![CDATA[
+      const handleReset = () => setCount(0);
+            ]]>
+        </insert>
+        <replace>
+            <source><![CDATA[<button onClick={() => setCount(count + 1)}>Click me</button>]]></source>
+            <new><![CDATA[<button onClick={() => setCount(c => c + 1)}>Click me</button>
+      <button onClick={handleReset}>Reset</button>]]></new>
+        </replace>
+      </change>
+    </changes>
+    \`\`\`
+6.  **AUTOMATIC DOCUMENTATION & CHANGELOGS**: When you propose a code change, you MUST ALSO proactively update relevant documentation files (\`CHANGELOG.md\`, \`README.md\`) in the same \`<changes>\` block.
+7.  **USER RESPONSE**: Your visible response to the user should summarize the changes. You MUST NOT instruct the user to copy/paste XML or use a "terminal". Guide them to use the UI elements (e.g., "I've proposed some changes. You can review them below and click 'Apply Changes' to accept."). The user-facing response **MUST NOT** contain any markdown code blocks (\`\`\`) or diff-like text.
+8.  **MANUAL FOLLOW-UP ACTIONS**: If your change requires manual steps (e.g., "update a Google Sheet"), list them clearly in your response AND propose creating/updating a \`TODO.md\` file with those steps using the \`<changes>\` block.
 ---
 `;
 

@@ -91,41 +91,37 @@ This application is built with:
 
 The application is a single-page app with no backend or build process. All code is contained within `index.html` and `index.tsx`. The AI's instructions, which dictate its behavior (including the file modification format), are located in `services/geminiService.ts`.
 
-### File Modification Mechanism
+### File Modification Mechanism: Structured Patches
 
-When the AI proposes a file change, it does so using a specific XML format that the application parses to create an interactive diff view.
+To balance token efficiency with reliability, the AI proposes file changes using a custom "Structured Patch" XML format. This is more robust than a standard `diff` patch and more efficient than sending the entire file content.
 
--   **Wrapper:** All changes are contained within a `<changes>` block.
--   **Individual Change:** Each file modification is an individual `<change>` element.
--   **Structure of `<change>`:**
-    -   `<file>`: The full path of the file to be modified or created.
-    -   `<description>`: A brief summary of the changes.
-    -   `<content>`: A patch in the standard **unified diff format**, wrapped in a `<![CDATA[...]]>` block. This is highly efficient as it only transmits the changed lines.
-        -   **New file:** Diff starts with `--- /dev/null` and `+++ path/to/file`.
-        -   **Deleted file:** Diff starts with `--- path/to/file` and `+++ /dev/null`.
-        -   **Modified file:** Diff starts with `--- a/path/to/file` and `+++ b/path/to/file`.
+-   **Wrapper:** All changes for a file are contained within a `<change file="...">` block. A response can contain multiple `<change>` blocks for different files.
+-   **Operations:** Inside a `<change>` block, the AI can specify one or more of the following operations:
+    -   **`<insert after_line="..." or before_line="...">`**: Inserts a block of code after or before a specific, unique "anchor" line. This is more robust than using line numbers.
+        -   **Content:** The code to insert is placed within a `<![CDATA[...]]>` block.
+    -   **`<replace>`**: Replaces an existing block of code with a new one. This is extremely robust.
+        -   **`<source>`**: The exact block of code to be replaced, wrapped in `<![CDATA[...]]>`.
+        -   **`<new>`**: The new code to replace the source block, wrapped in `<![CDATA[...]]>`.
+    -   **`<delete>`**: Deletes a specific block of code. Also extremely robust.
+        -   **Content:** The exact block of code to be deleted is placed within a `<![CDATA[...]]>` block.
+-   **File Creation:** To create a new file, the AI proposes a single `<insert>` operation within a `<change>` block for the new file path, without using `after_line` or `before_line`.
+-   **File Deletion:** To delete a file, the AI proposes a single `<delete>` operation that contains the entire content of the file to be deleted.
 
--   **Example of a patch**:
+-   **Example of a file modification**:
     ```xml
     <changes>
-      <change>
-        <file>src/App.tsx</file>
-        <description>Added a reset button to the counter component.</description>
-        <content><![CDATA[--- a/src/App.tsx
-+++ b/src/App.tsx
-@@ -4,9 +4,11 @@
- function App() {
-   const [count, setCount] = useState(0);
-   return (
-     <div>
-       <p>You clicked {count} times</p>
--      <button onClick={() => setCount(count + 1)}>Click me</button>
-+      <button onClick={() => setCount(count + 1)}>Click me</button>
-+      <button onClick={() => setCount(0)}>Reset</button>
-     </div>
-   );
- }
-]]></content>
+      <change file="src/App.tsx">
+        <description>Add a reset button and a state for it.</description>
+        <insert after_line="const [count, setCount] = useState(0);">
+            <![CDATA[
+      const handleReset = () => setCount(0);
+            ]]>
+        </insert>
+        <replace>
+            <source><![CDATA[<button onClick={() => setCount(count + 1)}>Click me</button>]]></source>
+            <new><![CDATA[<button onClick={() => setCount(c => c + 1)}>Click me</button>
+      <button onClick={handleReset}>Reset</button>]]></new>
+        </replace>
       </change>
     </changes>
     ```

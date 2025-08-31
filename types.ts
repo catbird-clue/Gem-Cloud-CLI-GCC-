@@ -19,6 +19,7 @@ export interface ChatMessage {
   content: string;
   attachments?: { name: string }[];
   proposedChanges?: ProposedChange[];
+  rawXml?: string; // To pass the raw XML for structured patch application
   error?: string;
   warning?: string;
 }
