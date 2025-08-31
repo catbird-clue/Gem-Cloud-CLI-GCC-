@@ -115,6 +115,17 @@ This is for persistent, global instructions that apply to all conversations. It 
 ---
 `;
 
+  const sessionContextFileInstruction = `
+---
+SPECIAL INSTRUCTIONS: SESSION CONTEXT FILE
+There is a single, dedicated file for storing the session summary/context: \`AI_Memory/context.md\`.
+
+1.  **DO NOT CREATE OTHER CONTEXT FILES**: You must not create any other files for storing session summaries or context notes (e.g., \`project_folder/context.md\`).
+2.  **USE THE DEDICATED FILE**: All session summary information is managed by the application through the \`AI_Memory/context.md\` file. The content of this file is provided to you at the beginning of each prompt under the "CURRENT SESSION CONTEXT (SUMMARY)" section.
+3.  **USER REQUESTS TO SAVE CONTEXT**: If the user asks you to "save the context", "remember what we discussed", or similar, do not create or modify any files yourself. Instead, instruct the user to click the "Save session summary" button in the application's interface. This button will trigger the correct process to update \`AI_Memory/context.md\`.
+---
+`;
+
   const fileModificationInstruction = `
 ---
 SPECIAL INSTRUCTIONS: FILE MODIFICATION
@@ -214,7 +225,7 @@ ${previousFile.content}
   }
 
 
-  const instructions: string[] = [baseInstruction, thoughtInstruction, memoryInstruction];
+  const instructions: string[] = [baseInstruction, thoughtInstruction, memoryInstruction, sessionContextFileInstruction];
   let projectContext = '';
   
   if (allFilePaths.length > 0) {
