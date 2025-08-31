@@ -140,26 +140,31 @@ You have the ability to propose changes to the user's project files.
     -   Each <change> MUST have three child elements:
         -   \`<file>\`: The full, exact path of the file to be modified (e.g., "src/components/Button.tsx"). If the file does not exist, you can propose to create it.
         -   \`<description>\`: A brief, one-sentence description of the change.
-        -   \`<content>\`: The complete new content of the entire file, wrapped in a \`<![CDATA[...]]>\` block. Do NOT provide only a snippet or a patch; provide the whole file's content from beginning to end.
-    -   **EXAMPLE**:
+        -   \`<content>\`: A patch in the standard **unified diff format**, wrapped in a \`<![CDATA[...]]>\` block. The patch MUST be relative to the original file content. This dramatically reduces output size and is more efficient.
+            -   For a **new file**, the diff should start with \`--- /dev/null\` and \`+++ path/to/file\`.
+            -   For a **deleted file**, the diff should start with \`--- path/to/file\` and \`+++ /dev/null\`.
+            -   For a **modified file**, it should be \`--- a/path/to/file\` and \`+++ b/path/to/file\`. You can use the original path for both.
+    -   **EXAMPLE of a patch**:
         \`\`\`xml
         <changes>
           <change>
             <file>src/App.tsx</file>
-            <description>Refactored the main component to use functional components and hooks.</description>
-            <content><![CDATA[import React, { useState } from 'react';
-
-        function App() {
-          const [count, setCount] = useState(0);
-          return (
-            <div>
-              <p>You clicked {count} times</p>
-              <button onClick={() => setCount(count + 1)}>Click me</button>
-            </div>
-          );
-        }
-
-        export default App;]]></content>
+            <description>Added a reset button to the counter component.</description>
+            <content><![CDATA[--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -4,9 +4,11 @@
+ function App() {
+   const [count, setCount] = useState(0);
+   return (
+     <div>
+       <p>You clicked {count} times</p>
+-      <button onClick={() => setCount(count + 1)}>Click me</button>
++      <button onClick={() => setCount(count + 1)}>Click me</button>
++      <button onClick={() => setCount(0)}>Reset</button>
+     </div>
+   );
+ }
+]]></content>
           </change>
         </changes>
         \`\`\`

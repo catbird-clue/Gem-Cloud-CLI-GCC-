@@ -89,4 +89,43 @@ This application is built with:
 *   **@google/genai** SDK to communicate with the Gemini API.
 *   **IndexedDB** for client-side storage of workspaces.
 
-The application is a single-page app with no backend or build process. All code is contained within `index.html` and `index.tsx`.
+The application is a single-page app with no backend or build process. All code is contained within `index.html` and `index.tsx`. The AI's instructions, which dictate its behavior (including the file modification format), are located in `services/geminiService.ts`.
+
+### File Modification Mechanism
+
+When the AI proposes a file change, it does so using a specific XML format that the application parses to create an interactive diff view.
+
+-   **Wrapper:** All changes are contained within a `<changes>` block.
+-   **Individual Change:** Each file modification is an individual `<change>` element.
+-   **Structure of `<change>`:**
+    -   `<file>`: The full path of the file to be modified or created.
+    -   `<description>`: A brief summary of the changes.
+    -   `<content>`: A patch in the standard **unified diff format**, wrapped in a `<![CDATA[...]]>` block. This is highly efficient as it only transmits the changed lines.
+        -   **New file:** Diff starts with `--- /dev/null` and `+++ path/to/file`.
+        -   **Deleted file:** Diff starts with `--- path/to/file` and `+++ /dev/null`.
+        -   **Modified file:** Diff starts with `--- a/path/to/file` and `+++ b/path/to/file`.
+
+-   **Example of a patch**:
+    ```xml
+    <changes>
+      <change>
+        <file>src/App.tsx</file>
+        <description>Added a reset button to the counter component.</description>
+        <content><![CDATA[--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -4,9 +4,11 @@
+ function App() {
+   const [count, setCount] = useState(0);
+   return (
+     <div>
+       <p>You clicked {count} times</p>
+-      <button onClick={() => setCount(count + 1)}>Click me</button>
++      <button onClick={() => setCount(count + 1)}>Click me</button>
++      <button onClick={() => setCount(0)}>Reset</button>
+     </div>
+   );
+ }
+]]></content>
+      </change>
+    </changes>
+    ```

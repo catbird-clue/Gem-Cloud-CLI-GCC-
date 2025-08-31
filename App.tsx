@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { applyPatch } from 'diff';
 import { FileExplorer } from './components/FileExplorer';
 import { ChatInterface } from './components/ChatInterface';
 import { MemoryEditor } from './components/MemoryEditor';
@@ -6,7 +7,7 @@ import { FileViewer } from './components/FileViewer';
 import { SessionSummaryViewer } from './components/SessionSummaryViewer';
 import { WorkspaceNameModal } from './components/WorkspaceNameModal';
 import { ConfirmationModal } from './components/ConfirmationModal';
-import type { UploadedFile, ChatMessage, FileChange, ProposedChange, GeminiModel } from './types';
+import type { UploadedFile, ChatMessage, ProposedChange, GeminiModel } from './types';
 import { AVAILABLE_MODELS } from './types';
 import { streamChatResponse, summarizeSession } from './services/geminiService';
 import { saveWorkspace, getWorkspace, getAllWorkspaceNames, deleteWorkspace, checkStoragePersistence } from './services/dbService';
@@ -572,33 +573,73 @@ export default function App(): React.ReactElement {
           
           const parser = new DOMParser();
           const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+          const errorNode = xmlDoc.querySelector('parsererror');
+          if (errorNode) {
+            throw new Error(`XML parsing error: ${errorNode.textContent}`);
+          }
           const changeNodes = xmlDoc.getElementsByTagName('change');
 
-          const changes: FileChange[] = Array.from(changeNodes).map(node => {
+          const patches: { filePath: string; patch: string }[] = Array.from(changeNodes).map(node => {
             const file = node.getElementsByTagName('file')[0]?.textContent || '';
-            const content = node.getElementsByTagName('content')[0]?.textContent || '';
-            return { filePath: file, newContent: content };
+            const patch = node.getElementsByTagName('content')[0]?.textContent || '';
+            return { filePath: file, patch };
           });
           
-          if (changes.length > 0) {
-              proposedChanges = changes.map(change => {
-                const oldFile = files.find(f => f.path === change.filePath);
-                return {
-                  ...change,
-                  oldContent: oldFile ? oldFile.content : `// A new file will be created at: ${change.filePath}`
-                };
-              }).filter(Boolean) as ProposedChange[];
+          if (patches.length > 0) {
+              const generatedChanges: ProposedChange[] = [];
+              let allPatchesValid = true;
+
+              for (const item of patches) {
+                  const oldFile = files.find(f => f.path === item.filePath);
+                  // For new files, old content is empty. The patch should reflect this.
+                  const oldContent = oldFile ? oldFile.content : ''; 
+
+                  // applyPatch returns false on failure.
+                  const newContentResult = applyPatch(oldContent, item.patch);
+                  
+                  if (newContentResult === false) {
+                      console.error(`Failed to apply patch for file: ${item.filePath}`, { patch: item.patch });
+                      const errorMessage = `The AI generated an invalid patch for \`${item.filePath}\`. The patch could not be applied. Please review the AI's logic or ask it to try again.`;
+                      setChatHistory(prev => {
+                        const lastMessage = prev[prev.length - 1];
+                        if (lastMessage && lastMessage.role === 'model') {
+                          // Update the last message with the error
+                          return [
+                            ...prev.slice(0, -1),
+                            { ...lastMessage, content: finalResponse, error: errorMessage, proposedChanges: undefined }
+                          ];
+                        }
+                        return prev;
+                      });
+                      allPatchesValid = false;
+                      break; // Stop processing further patches
+                  }
+                  
+                  generatedChanges.push({
+                    filePath: item.filePath,
+                    // For the diff viewer, show a placeholder for new files.
+                    oldContent: oldFile ? oldFile.content : `// A new file will be created at: ${item.filePath}`,
+                    newContent: newContentResult as string
+                  });
+              }
+
+              if (allPatchesValid) {
+                proposedChanges = generatedChanges;
+              }
           }
 
         } catch (xmlError) {
-          console.error("Failed to parse file update XML:", xmlError);
-          const errorMessage = "The AI proposed an invalid file change format.";
+          console.error("Failed to parse or apply file changes:", xmlError);
+          let errorMessage = "The AI proposed an invalid file change format.";
+          if (xmlError instanceof Error) {
+            errorMessage += ` Details: ${xmlError.message}`;
+          }
            setChatHistory(prev => {
               const lastMessage = prev[prev.length - 1];
               if (lastMessage && lastMessage.role === 'model') {
                 return [
                   ...prev.slice(0, -1),
-                  { ...lastMessage, content: '', error: errorMessage }
+                  { ...lastMessage, content: finalResponse, error: errorMessage, proposedChanges: undefined }
                 ];
               }
               return prev;
