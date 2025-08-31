@@ -7,10 +7,11 @@ Welcome to Gemini Cloud CLI, a web-based interface designed for collaborative so
 ## Core Features
 
 *   **Project Upload:** Upload your entire project folder to provide the AI with full context of your codebase.
-*   **Interactive Chat:** Communicate with Gemini to ask questions, request code changes, refactor components, or generate new features.
-*   **File Management:** The AI can propose changes directly to your files. You can review these changes in a user-friendly diff format and apply them with a single click.
-*   **Workspaces (Project Snapshots):** Save your entire set of uploaded files as a named "workspace". This allows you to quickly reload a complete project snapshot in a future session with a single click. Workspaces are stored securely and reliably in your browser's **IndexedDB**, a robust database designed for this purpose (it is **not** the less reliable Local Storage).
+*   **Interactive Chat:** Communicate with Gemini to ask questions, request code changes, or generate new features. You can attach files directly to a prompt for one-off questions, stop generation at any time, and see the AI's real-time "thoughts" as it works.
+*   **File Management:** The AI can propose creating new files or modifying existing ones. You can review these changes in a user-friendly diff format and apply them with a single click.
+*   **Workspaces (Project Snapshots):** Save your entire set of uploaded files as a named "workspace". This allows you to quickly reload a complete project snapshot in a future session. Workspaces are stored securely and reliably in your browser's **IndexedDB**.
 *   **Persistent Memory System:** The AI utilizes a two-part memory system stored as files within your project, ensuring context is never lost between sessions.
+*   **Chat Export:** Save your entire conversation, including code changes, to a local Markdown file for your records.
 
 ---
 
@@ -31,10 +32,10 @@ This file acts as the AI's permanent brain. It's the place for global rules, pre
 
 ### 2. Session Summary (Short-Term Context): `AI_Memory/context.md`
 
-This file is the AI's short-term memory for the **current task**. As your conversation grows, the AI's context window can fill up. Saving a session summary helps the AI stay focused.
+This file is the AI's short-term memory for the **current task**. As your conversation grows, the AI's context window can fill up. The "Context Health" indicator in the chat interface (🟢🟡🔴) shows you when it's time to save a summary. This helps the AI stay focused and prevents it from losing track of the current task.
 
 *   **Purpose:** To summarize the current task, goals, and recent progress, preventing the AI from losing track in long conversations.
-*   **How to Use:** When the "Context Health" indicator in the chat turns yellow or red, or when you are switching tasks, click the "Save session summary" button. The AI will read the conversation and create a concise summary in this file.
+*   **How to Use:** When the "Context Health" indicator turns yellow or red, or when you are switching tasks, click the "Save session summary" button. The AI will read the conversation and create a concise summary in this file.
 
 ---
 
@@ -42,11 +43,12 @@ This file is the AI's short-term memory for the **current task**. As your conver
 
 1.  **Prepare Your Project:** Create a folder named `AI_Memory` inside your project directory.
 2.  **Upload:** Click the **"Upload Project Folder"** button and select your main project folder. Alternatively, if you have saved a workspace before, select it from the dropdown menu.
-3.  **Start Chatting:** Begin a conversation with the AI. You can ask it to review your code, suggest improvements, or implement a new feature.
-4.  **Manage Context:** As the conversation progresses, use the **"Save session summary"** button to keep the AI up-to-date on the current task.
+3.  **Start Chatting:** Begin a conversation with the AI. You can ask it to review your code, suggest improvements, or implement a new feature. For questions about specific files not in the main project, use the paperclip icon to attach them to your prompt.
+4.  **Manage Context:** As the conversation progresses, use the **"Save session summary"** button to keep the AI up-to-date on the current task, especially when the Context Health indicator changes color.
 5.  **Apply Changes:** When the AI proposes file modifications, review the diffs presented in the chat and click **"Apply Changes"** to integrate them into your project files.
-6.  **Download:** Modified files will be highlighted in the File Explorer. Use the download icon to save them to your local machine.
+6.  **Download:** Modified files will be highlighted in the File Explorer. Use the download icon that appears on hover to save them to your local machine.
 7.  **Save Your Work:** If you plan to return to this project, click the save icon in the "Workspace" section to save your current file set as a named workspace. Next time you open the app, you can load it instantly from the dropdown menu.
+8.  **Export History:** When you're done, you can export the entire chat conversation as a Markdown file using the export button at the top of the chat panel.
 
 ---
 
