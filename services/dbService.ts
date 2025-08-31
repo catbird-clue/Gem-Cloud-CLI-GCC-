@@ -38,6 +38,27 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
+export async function checkStoragePersistence(): Promise<'persistent' | 'transient' | 'unknown'> {
+    if (navigator.storage && navigator.storage.persisted) {
+        try {
+            const isPersisted = await navigator.storage.persisted();
+            if (isPersisted) {
+                return 'persistent';
+            }
+            // If not persisted, try to request it. This is a one-time request.
+            if (navigator.storage.persist) {
+                const permissionGranted = await navigator.storage.persist();
+                return permissionGranted ? 'persistent' : 'transient';
+            }
+            return 'transient';
+        } catch (error) {
+            console.error("Error checking or requesting storage persistence:", error);
+            return 'unknown';
+        }
+    }
+    return 'unknown';
+}
+
 export async function saveWorkspace(name: string, files: UploadedFile[]): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {

@@ -4,10 +4,11 @@ import { ChatInterface } from './components/ChatInterface';
 import { MemoryEditor } from './components/MemoryEditor';
 import { FileViewer } from './components/FileViewer';
 import { SessionSummaryViewer } from './components/SessionSummaryViewer';
+import { WorkspaceNameModal } from './components/WorkspaceNameModal';
 import type { UploadedFile, ChatMessage, FileChange, ProposedChange, GeminiModel } from './types';
 import { AVAILABLE_MODELS } from './types';
 import { streamChatResponse, summarizeSession } from './services/geminiService';
-import { saveWorkspace, getWorkspace, getAllWorkspaceNames, deleteWorkspace } from './services/dbService';
+import { saveWorkspace, getWorkspace, getAllWorkspaceNames, deleteWorkspace, checkStoragePersistence } from './services/dbService';
 
 const MAX_HISTORY_LENGTH = 20; // Keep the last 20 file states
 
@@ -27,6 +28,9 @@ export default function App(): React.ReactElement {
   const [aiThought, setAiThought] = useState<string | null>(null);
   const [workspaces, setWorkspaces] = useState<string[]>([]);
   const [currentWorkspace, setCurrentWorkspace] = useState<string>('Current Session');
+  const [isSaveWorkspaceModalOpen, setIsSaveWorkspaceModalOpen] = useState(false);
+  const [suggestedWorkspaceName, setSuggestedWorkspaceName] = useState('');
+  const [persistenceWarningShown, setPersistenceWarningShown] = useState(false);
   const stopGenerationRef = useRef(false);
   
   // Effect to load workspaces on mount
@@ -46,6 +50,28 @@ export default function App(): React.ReactElement {
     };
     loadWorkspaces();
   }, []);
+  
+  // Effect to check storage persistence and warn the user
+  useEffect(() => {
+    if (persistenceWarningShown) return;
+
+    const persistenceCheck = async () => {
+      const status = await checkStoragePersistence();
+      if (status !== 'persistent') {
+        const warningMessage = `**Warning:** Your browser has indicated it will not save data permanently for this site. This means workspaces can be cleared automatically. This usually happens in **Private/Incognito mode** or with settings that **"Clear cookies and site data when you quit"**. For workspaces to persist, please use a standard browser window and ensure this site's data is not set to be cleared automatically.`;
+        
+        setChatHistory(prev => [...prev, {
+          role: 'model',
+          content: '',
+          warning: warningMessage,
+        }]);
+        setPersistenceWarningShown(true);
+      }
+    };
+
+    const timerId = setTimeout(persistenceCheck, 2000);
+    return () => clearTimeout(timerId);
+  }, [persistenceWarningShown]);
 
   // Effect to load initial welcome message
   useEffect(() => {
@@ -67,8 +93,7 @@ export default function App(): React.ReactElement {
     setSessionSummary(summaryFile?.content || '');
   }, [files]);
 
-
-  const handleClearFiles = () => {
+  const handleClearFiles = useCallback(() => {
     if (files.length === 0 && currentWorkspace === 'Current Session') return;
     setFiles([]);
     setModifiedFiles({});
@@ -80,7 +105,7 @@ export default function App(): React.ReactElement {
         role: 'model',
         content: `Project files have been cleared. You are now in a new, empty session.`
      }]);
-  };
+  }, [files.length, currentWorkspace]);
   
   const handleFileUpload = useCallback(async (uploadedFiles: FileList | null) => {
     if (!uploadedFiles || uploadedFiles.length === 0) return;
@@ -270,7 +295,7 @@ export default function App(): React.ReactElement {
     setChatHistory(prev => [...prev, { role: 'model', content }]);
   }, []);
 
-  const handleSaveWorkspace = useCallback(async () => {
+  const handleOpenSaveWorkspaceModal = useCallback(() => {
     if (files.length === 0) {
       setChatHistory(prev => [...prev, {
         role: 'model',
@@ -279,11 +304,16 @@ export default function App(): React.ReactElement {
       return;
     }
 
-    const currentName = currentWorkspace !== 'Current Session' ? currentWorkspace : `Workspace ${new Date().toLocaleString()}`;
-    const name = prompt("Enter a name for this workspace:", currentName);
-    if (!name || !name.trim()) {
-      return; // User cancelled
-    }
+    const suggestedName = currentWorkspace !== 'Current Session' 
+      ? currentWorkspace 
+      : `Workspace ${new Date().toLocaleString()}`;
+      
+    setSuggestedWorkspaceName(suggestedName);
+    setIsSaveWorkspaceModalOpen(true);
+  }, [files, currentWorkspace]);
+
+  const handleSaveWorkspace = useCallback(async (name: string) => {
+    setIsSaveWorkspaceModalOpen(false);
     
     setIsLoading(true);
     try {
@@ -303,26 +333,22 @@ export default function App(): React.ReactElement {
     } finally {
       setIsLoading(false);
     }
-  }, [files, currentWorkspace]);
+  }, [files]);
 
   const handleLoadWorkspace = useCallback(async (name: string) => {
     if (name === currentWorkspace) return;
 
     if (name === 'Current Session') {
-        if (files.length > 0 && confirm('This will clear all files and start a new, empty session. Are you sure?')) {
-            handleClearFiles();
-        } else if (files.length === 0) {
-            handleClearFiles();
-        }
-        return;
+      const hasUnsavedChanges = (currentWorkspace !== 'Current Session' && Object.keys(modifiedFiles).length > 0) || (currentWorkspace === 'Current Session' && files.length > 0);
+      if (hasUnsavedChanges && !confirm('This will clear all files and start a new, empty session. Are you sure?')) {
+          return;
+      }
+      handleClearFiles();
+      return;
     }
 
-    if (!confirm(`Loading workspace "${name}" will replace your current session. Unsaved changes will be lost. Continue?`)) {
-      // Find the select element and reset its value visually
-      const selectElement = document.querySelector('select[aria-label="Select a workspace"]') as HTMLSelectElement | null;
-      if (selectElement) {
-        selectElement.value = currentWorkspace;
-      }
+    const hasUnsavedChanges = (currentWorkspace === 'Current Session' && files.length > 0) || Object.keys(modifiedFiles).length > 0;
+    if (hasUnsavedChanges && !confirm(`Loading workspace "${name}" will replace your current session. Unsaved changes will be lost. Continue?`)) {
       return;
     }
 
@@ -349,11 +375,10 @@ export default function App(): React.ReactElement {
       setChatHistory(prev => [...prev, {
         role: 'model', content: '', error: errorMessage
       }]);
-      setCurrentWorkspace('Current Session');
     } finally {
       setIsLoading(false);
     }
-  }, [currentWorkspace, files]);
+  }, [currentWorkspace, files, modifiedFiles, handleClearFiles]);
 
   const handleDeleteWorkspace = useCallback(async (name: string) => {
     if (name === 'Current Session') return;
@@ -388,7 +413,7 @@ export default function App(): React.ReactElement {
     } finally {
       setIsLoading(false);
     }
-  }, [currentWorkspace]);
+  }, [currentWorkspace, handleClearFiles]);
 
   const handlePromptSubmit = useCallback(async (prompt: string, stagedFiles: File[]) => {
     if (isLoading) return;
@@ -575,7 +600,7 @@ export default function App(): React.ReactElement {
         onViewFile={handleViewFile}
         onAddChatMessage={handleAddChatMessage}
         onAcknowledgeFileChange={handleAcknowledgeFileChange}
-        onSaveWorkspace={handleSaveWorkspace}
+        onSaveWorkspace={handleOpenSaveWorkspaceModal}
         onLoadWorkspace={handleLoadWorkspace}
         onDeleteWorkspace={handleDeleteWorkspace}
       />
@@ -603,6 +628,12 @@ export default function App(): React.ReactElement {
         isOpen={isSummaryViewerOpen}
         summary={sessionSummary}
         onClose={() => setIsSummaryViewerOpen(false)}
+      />
+      <WorkspaceNameModal
+        isOpen={isSaveWorkspaceModalOpen}
+        suggestedName={suggestedWorkspaceName}
+        onSave={handleSaveWorkspace}
+        onClose={() => setIsSaveWorkspaceModalOpen(false)}
       />
     </main>
   );

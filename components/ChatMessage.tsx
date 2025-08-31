@@ -1,5 +1,5 @@
 import React, { useState, memo } from 'react';
-import { GeminiIcon, ErrorIcon, FileIcon } from './Icons';
+import { GeminiIcon, WarningIcon, FileIcon } from './Icons';
 import type { ChatMessage as ChatMessageType, ProposedChange } from '../types';
 import { FileChangePreview } from './FileChangePreview';
 
@@ -45,11 +45,28 @@ export const ChatMessage = memo(({ message, isStreaming = false, isLoading = fal
     return <pre className="text-gray-300 whitespace-pre-wrap font-sans">{message.content}</pre>;
   };
 
+  if (message.warning) {
+    return (
+      <div className="flex items-start gap-4">
+        <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-yellow-800">
+          <WarningIcon className="w-5 h-5 text-yellow-200" />
+        </div>
+        <div className="w-full max-w-3xl p-4 rounded-lg bg-yellow-900/30 border border-yellow-500/30">
+           {/* Use a div to render simple markdown like bolding for emphasis */}
+           <div 
+             className="text-yellow-200 whitespace-pre-wrap font-sans" 
+             dangerouslySetInnerHTML={{ __html: message.warning.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} 
+           />
+        </div>
+      </div>
+    );
+  }
+
   if (message.error) {
     return (
       <div className="flex items-start gap-4">
         <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-red-800">
-          <ErrorIcon className="w-5 h-5 text-red-200" />
+          <WarningIcon className="w-5 h-5 text-red-200" />
         </div>
         <div className="w-full max-w-3xl p-4 rounded-lg bg-red-900/30 border border-red-500/30">
            <pre className="text-red-200 whitespace-pre-wrap font-sans">{message.error}</pre>

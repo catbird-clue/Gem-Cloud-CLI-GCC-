@@ -20,6 +20,7 @@ export interface ChatMessage {
   attachments?: { name: string }[];
   proposedChanges?: ProposedChange[];
   error?: string;
+  warning?: string;
 }
 
 export interface TreeNodeValue {
