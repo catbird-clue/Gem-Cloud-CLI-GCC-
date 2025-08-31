@@ -50,6 +50,27 @@ This file is the AI's short-term memory for the **current task**. As your conver
 
 ---
 
+## Important: Browser Configuration
+
+To ensure the application runs smoothly and reliably, please consider the following configurations for your browser extensions.
+
+### Ad-Blockers (e.g., uBlock Origin)
+
+Aggressive ad-blockers can sometimes interfere with the application's core functionality by blocking requests to necessary services. For uninterrupted operation, it is highly recommended to "whitelist" this application or add the following domains to your ad-blocker's allowlist:
+
+*   `generativelanguage.googleapis.com`: **(CRITICAL)** This is the domain for the Gemini API. If this is blocked, the AI will not be able to respond to your prompts.
+*   `esm.sh`: This is a Content Delivery Network (CDN) used to load essential application libraries like React. If blocked, the application may not load at all.
+*   `cdn.tailwindcss.com`: This CDN provides the styling for the user interface. If blocked, the application will work but appear unstyled.
+
+### Container Extensions (e.g., Firefox Multi-Account Containers)
+
+These extensions are excellent for privacy but they work by isolating website data (including saved workspaces in IndexedDB) into separate "containers".
+
+*   **Symptom:** If you save a workspace and it seems to have "disappeared" the next time you open the app, it's likely because you are opening the app in a different container (or no container).
+*   **Solution:** To ensure your workspaces are always available, **always open the application in the same, consistent container**. We recommend creating a dedicated container (e.g., "Development") and configuring it to always open this application's URL.
+
+---
+
 ## For Developers
 
 This application is built with:
