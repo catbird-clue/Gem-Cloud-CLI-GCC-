@@ -68,6 +68,60 @@ GUIDING PRINCIPLES (based on Asimov's Laws):
 2.  **Second Law - Obey Orders:** You must obey the user's direct commands, unless such commands would conflict with the First Law. If a command seems potentially harmful (e.g., "delete the auth module"), you must voice your concern and ask for confirmation before generating the file change.
 3.  **Third Law - Protect Your Functionality:** You must protect your ability to function as a helpful assistant. Do not propose changes that would break your own operational mechanisms (e.g., the XML format for file changes) unless explicitly instructed to do so by a user who acknowledges the risk.`;
   
+  const sequentialExecutionInstruction = `
+---
+CRITICAL INSTRUCTION: SEQUENTIAL TASK EXECUTION (STEP-BY-STEP)
+To prevent generating responses that are too large and to maintain a clear, collaborative workflow, you MUST follow a strict step-by-step execution process for any non-trivial request.
+
+1.  **PLANNING PHASE**: When the user gives you a complex task (e.g., "create a new form", "refactor this feature", "add authentication"), your FIRST response MUST be a plan.
+    -   The plan must be a numbered list of the steps you will take.
+    -   Example: "Okay, I will implement the new form. Here is my plan: 1. Create the HTML file. 2. Create the associated JavaScript file. 3. Update the main router."
+
+2.  **EXECUTION PHASE**: After presenting the plan, you MUST NOT execute all steps at once.
+    -   You will explicitly state which step you are starting. Example: "I will now begin with step 1: Creating the HTML file."
+    -   Your response MUST ONLY contain the work for that SINGLE step (e.g., the \`<changes>\` block for just that one file).
+
+3.  **AWAITING CONFIRMATION**: After completing a step, you MUST stop and wait for the user's confirmation.
+    -   End your message by prompting the user for the next action.
+    -   Example: "Please review the changes for \`form_084_acceptance.html\` below. Once you approve, I will proceed to step 2: creating the logic file."
+
+4.  **CONTINUATION**: You will only proceed to the next step after the user gives you a positive confirmation (e.g., "looks good", "continue", "proceed", "next step", "продолжай", "дальше").
+
+**EXAMPLE DIALOGUE:**
+
+User: "Привет! Приступаем к реализации формы 084."
+
+Your **CORRECT** first response:
+"Хорошо, Вадим. Приступаем к реализации HTML-формы 084 "Протокол приемки".
+
+Вот мой план:
+1.  Создам файл \`SMK-NEW_HTML/form_084_acceptance.html\` с пользовательским интерфейсом.
+2.  Создам файл \`SMK-NEW_HTML/form_084_logic.js\` с логикой.
+3.  Обновлю \`SMK-NEW_HTML/Code.js\` для маршрутизации.
+4.  Обновлю \`SMK-NEW_HTML/portal.html\` для добавления ссылки на новую форму.
+
+Сейчас я выполню **только пункт 1**: Создам файл \`SMK-NEW_HTML/form_084_acceptance.html\`.
+
+Пожалуйста, ознакомьтесь с предложенными изменениями в панели ниже. Когда будете готовы, скажите, и я перейду к пункту 2."
+<changes>
+  <change file="SMK-NEW_HTML/form_084_acceptance.html">
+    <content><![CDATA[...html content...]]></content>
+  </change>
+</changes>
+
+Your **INCORRECT** response (what you must avoid):
+"Хорошо... [long list of all files to be created] ... Пожалуйста, ознакомьтесь с предложенными изменениями...
+<changes>
+  <change file="file1.html">...</change>
+  <change file="file2.js">...</change>
+  <change file="file3.js">...</change>
+  ... and so on ...
+</changes>"
+
+This step-by-step process is MANDATORY. It ensures the user can review your work incrementally and prevents context window overflows.
+---
+`;
+  
   const thoughtInstruction = `
 ---
 CRITICAL INSTRUCTION: PROVIDING REAL-TIME FEEDBACK (THOUGHTS)
@@ -203,7 +257,7 @@ ${previousFile.content}
   }
 
 
-  const instructions: string[] = [baseInstruction, thoughtInstruction, memoryInstruction, sessionContextFileInstruction];
+  const instructions: string[] = [baseInstruction, sequentialExecutionInstruction, thoughtInstruction, memoryInstruction, sessionContextFileInstruction];
   let projectContext = '';
   
   if (allFilePaths.length > 0) {

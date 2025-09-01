@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { FileExplorer } from './components/FileExplorer';
 import { ChatInterface } from './components/ChatInterface';
@@ -14,6 +15,48 @@ import { streamChatResponse, summarizeSession } from './services/geminiService';
 import { extractFullContentFromChangeXml } from './utils/patchUtils';
 
 const MAX_HISTORY_LENGTH = 20; // Keep the last 20 file states
+const CONTEXT_CHAR_LIMIT = 25000; // Character limit for chat history before pruning
+
+/**
+ * Prunes the chat history if it exceeds a character limit to prevent context overflow.
+ * It always keeps the first message (initial welcome/context) and the most recent messages
+ * that fit within the limit.
+ * @param history The full chat history.
+ * @returns A potentially pruned version of the chat history.
+ */
+const pruneChatHistory = (history: ChatMessage[]): ChatMessage[] => {
+    const totalChars = history.reduce((acc, msg) => acc + (msg.content?.length || 0) + (msg.warning?.length || 0), 0);
+
+    if (totalChars <= CONTEXT_CHAR_LIMIT) {
+        return history; // No pruning needed
+    }
+
+    let runningChars = 0;
+    const keptMessages: ChatMessage[] = [];
+
+    // Iterate backwards from the end to keep the most recent messages.
+    for (let i = history.length - 1; i >= 0; i--) {
+        const message = history[i];
+        const messageLength = (message.content?.length || 0) + (message.warning?.length || 0);
+        
+        // Stop if adding the next message would exceed the limit.
+        if (runningChars + messageLength > CONTEXT_CHAR_LIMIT) {
+            break;
+        }
+        
+        runningChars += messageLength;
+        keptMessages.unshift(message); // Add to the beginning to maintain order
+    }
+    
+    // Ensure the very first message is always included if it's not already.
+    const firstMessage = history[0];
+    if (firstMessage && !keptMessages.includes(firstMessage)) {
+        keptMessages.unshift(firstMessage);
+    }
+    
+    return keptMessages;
+};
+
 
 export default function App(): React.ReactElement {
   const [files, setFiles] = useState<UploadedFile[]>([]);
@@ -317,15 +360,30 @@ export default function App(): React.ReactElement {
     setIsLoading(true);
     setAiThought(null);
     stopGenerationRef.current = false;
+    
+    const prunedHistory = pruneChatHistory(chatHistory);
+    const newMessages: ChatMessage[] = [];
+
+    if (prunedHistory.length < chatHistory.length) {
+      const warningMessage = "To make room for a response, older messages were not sent to the AI. For better long-term context, please **Save session summary**.";
+      const lastMessage = chatHistory[chatHistory.length - 1];
+      if (!lastMessage || !lastMessage.warning || lastMessage.warning !== warningMessage) {
+        newMessages.push({ role: 'model', content: '', warning: warningMessage });
+      }
+    }
+    
     const userMessage: ChatMessage = { 
       role: 'user', 
       content: prompt,
       attachments: stagedFiles.map(f => ({ name: f.name })) 
     };
-    
-    const historyForApi = [...chatHistory, userMessage];
+    newMessages.push(userMessage);
+
     const modelMessage: ChatMessage = { role: 'model', content: '' };
-    setChatHistory(prev => [...prev, userMessage, modelMessage]);
+    newMessages.push(modelMessage);
+
+    const historyForApi = [...prunedHistory, userMessage];
+    setChatHistory(prev => [...prev, ...newMessages]);
     
     let fullModelResponse = '';
     let generationStopped = false;
@@ -355,12 +413,13 @@ export default function App(): React.ReactElement {
             .replace(/<changes>[\s\S]*$/, '');
 
         setChatHistory(prev => {
-          const lastMessage = prev[prev.length - 1];
-          if (lastMessage && lastMessage.role === 'model') {
-            return [
-              ...prev.slice(0, -1),
-              { ...lastMessage, content: displayContent.trim() }
-            ];
+          const newHistory = [...prev];
+          // Find the model message we added for this turn and update it.
+          // It should be the last message in the history.
+          const lastMessageIndex = newHistory.length - 1;
+          if (lastMessageIndex >= 0 && newHistory[lastMessageIndex].role === 'model') {
+            newHistory[lastMessageIndex] = { ...newHistory[lastMessageIndex], content: displayContent.trim() };
+            return newHistory;
           }
           return prev;
         });
@@ -447,12 +506,11 @@ export default function App(): React.ReactElement {
             errorMessage += ` Details: ${err.message}`;
           }
            setChatHistory(prev => {
-              const lastMessage = prev[prev.length - 1];
-              if (lastMessage && lastMessage.role === 'model') {
-                return [
-                  ...prev.slice(0, -1),
-                  { ...lastMessage, content: finalResponse, error: errorMessage, proposedChanges: undefined }
-                ];
+              const newHistory = [...prev];
+              const lastMessageIndex = newHistory.length - 1;
+              if (lastMessageIndex >= 0 && newHistory[lastMessageIndex].role === 'model') {
+                  newHistory[lastMessageIndex] = { ...newHistory[lastMessageIndex], content: finalResponse, error: errorMessage, proposedChanges: undefined };
+                  return newHistory;
               }
               return prev;
             });
@@ -460,12 +518,11 @@ export default function App(): React.ReactElement {
       }
       
       setChatHistory(prev => {
-        const lastMessage = prev[prev.length - 1];
-        if (lastMessage && lastMessage.role === 'model') {
-          return [
-            ...prev.slice(0, -1),
-            { ...lastMessage, content: finalResponse, proposedChanges }
-          ];
+        const newHistory = [...prev];
+        const lastMessageIndex = newHistory.length - 1;
+        if (lastMessageIndex >= 0 && newHistory[lastMessageIndex].role === 'model') {
+          newHistory[lastMessageIndex] = { ...newHistory[lastMessageIndex], content: finalResponse, proposedChanges };
+          return newHistory;
         }
         return prev;
       });
@@ -486,14 +543,13 @@ export default function App(): React.ReactElement {
       const errorMessage = `Gemini API Error: ${detail}`;
       
        setChatHistory(prev => {
-          const lastMessage = prev[prev.length - 1];
-          if (lastMessage && lastMessage.role === 'model') {
-            return [
-              ...prev.slice(0, -1),
-              { ...lastMessage, content: '', error: errorMessage }
-            ];
+          const newHistory = [...prev];
+          const lastMessageIndex = newHistory.length - 1;
+          if (lastMessageIndex >= 0 && newHistory[lastMessageIndex].role === 'model') {
+            newHistory[lastMessageIndex] = { ...newHistory[lastMessageIndex], content: '', error: errorMessage };
+            return newHistory;
           }
-          return [...prev, {role: 'model', content: '', error: errorMessage}];
+          return [...prev.slice(0, -1), {role: 'model', content: '', error: errorMessage}];
         });
     } finally {
       setIsLoading(false);

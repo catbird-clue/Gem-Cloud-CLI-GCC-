@@ -38,16 +38,19 @@ This file is the AI's short-term memory for the **current task**. As your conver
 
 ---
 
-## Getting Started: Typical Workflow
+## Getting Started: The Step-by-Step Workflow
 
-1.  **Prepare Your Project:** Create a folder named `AI_Memory` inside your project directory.
-2.  **Upload:** Click the **"Upload Project Folder"** button and select your main project folder.
-3.  **Start Chatting:** Begin a conversation with the AI. You can ask it to review your code, suggest improvements, or implement a new feature. For questions about specific files not in the main project, use the paperclip icon to attach them to your prompt.
-4.  **Manage Context:** As the conversation progresses, use the **"Save session summary"** button to keep the AI up-to-date on the current task, especially when the Context Health indicator changes color.
-5.  **Apply Changes:** When the AI proposes file modifications, review the diffs presented in the chat and click **"Apply Changes"** to integrate them into your project files.
-6.  **Download:** Modified files will be highlighted in the File Explorer. Use the download icon that appears on hover to save them to your local machine.
-7.  **Export History:** When you're done, you can export the entire chat conversation as a Markdown file using the export button at the top of the chat panel.
-8.  **Clear Session:** To start over, click the trash can icon in the File Explorer header to clear all files and reset the application.
+1.  **Prepare & Upload:** Create a folder named `AI_Memory` in your project. Click **"Upload Project Folder"** and select your project.
+2.  **Assign a Task:** Give the AI a complex task, like "Implement a new login form" or "Refactor the user service to use async/await".
+3.  **Review the Plan:** The AI will first respond with a numbered plan outlining the steps it will take. It will then execute **only the first step** and present the proposed file changes.
+4.  **Apply and Continue (The Core Loop):** This is the most important part of the workflow.
+    *   **a. Review:** Look at the proposed changes in the interactive panel below the AI's message.
+    *   **b. Apply:** If you are happy with the changes, click the **"Apply Changes"** button. This updates the project's state for the AI's next step.
+    *   **c. Confirm:** Reply to the AI with a confirmation like "continue", "next", "proceed", or "продолжай".
+5.  **Repeat:** The AI will proceed to the next step in its plan. Repeat the "Apply and Continue" loop until the task is complete.
+6.  **Manage Context:** For very long tasks, keep an eye on the "Context Health" indicator. Use the **"Save session summary"** button if it turns yellow or red to keep the AI focused.
+7.  **Download Your Files:** Once finished, modified files are highlighted in green in the File Explorer. Hover over them to download the updated versions.
+8.  **Export & Clear:** You can export the chat history using the export button or clear the session with the trash can icon to start fresh.
 
 ---
 
