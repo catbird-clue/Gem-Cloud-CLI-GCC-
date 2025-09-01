@@ -49,12 +49,17 @@ export const ChatInterface = ({ chatHistory, isLoading, aiThought, onPromptSubmi
   
   // Effect to move cursor to the end when navigating history
   useEffect(() => {
-    if (textareaRef.current) {
+    // This effect should only run when a prompt from history is selected via arrow keys.
+    // We detect this by checking if the historyIndex is within the bounds of past prompts.
+    // When a user starts typing (even to edit a history item), handlePromptChange resets
+    // historyIndex to userPrompts.length, which deactivates this effect and allows
+    // free cursor movement for editing.
+    if (textareaRef.current && historyIndex < userPrompts.length) {
         const length = textareaRef.current.value.length;
         textareaRef.current.selectionStart = length;
         textareaRef.current.selectionEnd = length;
     }
-  }, [prompt, historyIndex]);
+  }, [prompt, historyIndex, userPrompts.length]);
 
   const { status, tooltip, percentage } = useMemo(() => {
     const totalChars = chatHistory.reduce((acc, msg) => acc + (msg.content?.length || 0), 0);
