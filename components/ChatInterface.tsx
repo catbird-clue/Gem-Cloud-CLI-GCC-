@@ -20,6 +20,18 @@ export const ChatInterface = ({ chatHistory, isLoading, aiThought, onPromptSubmi
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Memoize user prompts for history navigation
+  const userPrompts = useMemo(() => 
+    chatHistory.filter(msg => msg.role === 'user' && msg.content.trim()).map(msg => msg.content), 
+  [chatHistory]);
+  
+  const [historyIndex, setHistoryIndex] = useState(userPrompts.length);
+
+  // When userPrompts array updates (a new message is sent), reset the history index
+  useEffect(() => {
+    setHistoryIndex(userPrompts.length);
+  }, [userPrompts.length]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -34,6 +46,15 @@ export const ChatInterface = ({ chatHistory, isLoading, aiThought, onPromptSubmi
         textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
     }
   }, [prompt]);
+  
+  // Effect to move cursor to the end when navigating history
+  useEffect(() => {
+    if (textareaRef.current) {
+        const length = textareaRef.current.value.length;
+        textareaRef.current.selectionStart = length;
+        textareaRef.current.selectionEnd = length;
+    }
+  }, [prompt, historyIndex]);
 
   const { status, tooltip, percentage } = useMemo(() => {
     const totalChars = chatHistory.reduce((acc, msg) => acc + (msg.content?.length || 0), 0);
@@ -156,6 +177,42 @@ export const ChatInterface = ({ chatHistory, isLoading, aiThought, onPromptSubmi
   const handleRemoveFile = (fileName: string) => {
     setStagedFiles(prev => prev.filter(f => f.name !== fileName));
   };
+  
+  const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setPrompt(e.target.value);
+    // If user types, break out of history navigation mode
+    setHistoryIndex(userPrompts.length);
+  };
+  
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // History navigation
+    if (e.key === 'ArrowUp') {
+      // Allow navigation only if textarea is empty, or if we are already navigating
+      if (prompt === '' || (historyIndex < userPrompts.length && prompt === userPrompts[historyIndex])) {
+        e.preventDefault();
+        const newIndex = Math.max(0, historyIndex - 1);
+        if (userPrompts[newIndex]) {
+          setHistoryIndex(newIndex);
+          setPrompt(userPrompts[newIndex]);
+        }
+      }
+    } else if (e.key === 'ArrowDown') {
+      // Allow navigation down only if we are currently in the history
+      if (historyIndex < userPrompts.length) {
+        e.preventDefault();
+        const newIndex = Math.min(userPrompts.length, historyIndex + 1);
+        setHistoryIndex(newIndex);
+        if (newIndex < userPrompts.length) {
+          setPrompt(userPrompts[newIndex]);
+        } else {
+          setPrompt(''); // Clear when we go "past" the most recent message
+        }
+      }
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -253,13 +310,8 @@ export const ChatInterface = ({ chatHistory, isLoading, aiThought, onPromptSubmi
               <textarea
                 ref={textareaRef}
                 value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit(e);
-                  }
-                }}
+                onChange={handlePromptChange}
+                onKeyDown={handleKeyDown}
                 placeholder="Ask me anything, or upload a project to discuss your code..."
                 className="w-full bg-gray-700 text-gray-200 rounded-lg p-3 pl-12 pr-12 resize-none focus:ring-2 focus:ring-indigo-500 focus:outline-none placeholder-gray-400"
                 rows={1}
