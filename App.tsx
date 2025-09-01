@@ -5,12 +5,9 @@ import { MemoryEditor } from './components/MemoryEditor';
 import { FileViewer } from './components/FileViewer';
 import { FileDiffViewer } from './components/FileDiffViewer';
 import { SessionSummaryViewer } from './components/SessionSummaryViewer';
-import { WorkspaceNameModal } from './components/WorkspaceNameModal';
-import { ConfirmationModal } from './components/ConfirmationModal';
 import type { UploadedFile, ChatMessage, ProposedChange, GeminiModel } from './types';
 import { AVAILABLE_MODELS } from './types';
 import { streamChatResponse, summarizeSession } from './services/geminiService';
-import * as dbService from './services/dbService';
 import { extractFullContentFromChangeXml } from './utils/patchUtils';
 
 const MAX_HISTORY_LENGTH = 20; // Keep the last 20 file states
@@ -73,39 +70,15 @@ export default function App(): React.ReactElement {
   const [viewingDiff, setViewingDiff] = useState<{ oldFile: UploadedFile; newFile: UploadedFile } | null>(null);
   const [aiThought, setAiThought] = useState<string | null>(null);
 
-  // Workspace state
-  const [currentWorkspace, setCurrentWorkspace] = useState<string>('default');
-  const [availableWorkspaces, setAvailableWorkspaces] = useState<string[]>([]);
-  const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [workspaceToDelete, setWorkspaceToDelete] = useState<string | null>(null);
-
   const stopGenerationRef = useRef(false);
   
   // Effect to load initial welcome message
   useEffect(() => {
-    const welcomeMessage = `Welcome to Gemini Cloud CLI! Upload your project folder using the button on the left to get started.`;
+    const welcomeMessage = `Welcome to Gemini Cloud CLI! Upload your project folder using the button on the left to get started. Note: This is a session-only tool. Refreshing the page will clear all files and chat history.`;
      setChatHistory([{
         role: 'model',
         content: welcomeMessage
       }]);
-  }, []);
-
-  // Effect to load available workspaces on startup
-  useEffect(() => {
-    const fetchWorkspaces = async () => {
-        const names = await dbService.getAllWorkspaceNames();
-        setAvailableWorkspaces(names);
-    };
-    fetchWorkspaces();
-
-    // Also check for storage persistence
-    dbService.checkStoragePersistence().then(persistence => {
-        if (persistence === 'transient') {
-            handleAddChatMessage("Warning: Browser storage is not persistent. Saved workspaces may be lost if the browser needs to clear space. This can often be fixed by bookmarking the app or adding it to your home screen.");
-        }
-    });
-
   }, []);
 
   // Effect to derive AI memory and session summary from the project files
@@ -128,7 +101,6 @@ export default function App(): React.ReactElement {
         setFileHistory([]);
         setSessionSummary('');
         setAiMemory('');
-        setCurrentWorkspace('default');
         setChatHistory([{
             role: 'model',
             content: `Project files have been cleared. You are now in a new, empty session.`
@@ -174,14 +146,6 @@ export default function App(): React.ReactElement {
         });
         return updatedModified;
       });
-
-      if (isFirstUpload && newFiles.length > 0) {
-          const firstPath = newFiles[0].path;
-          const rootDir = firstPath.split('/')[0];
-          if (rootDir && rootDir !== firstPath) {
-              setCurrentWorkspace(rootDir);
-          }
-      }
       
       const message = isFirstUpload
         ? `Successfully uploaded ${newFiles.length} files. You can now ask me questions about your code.`
@@ -277,75 +241,6 @@ export default function App(): React.ReactElement {
       setIsSummarizing(false);
     }
   }, [chatHistory, sessionSummary, isSummarizing, files]);
-
-  // --- Workspace Handlers ---
-
-  const handleSaveWorkspace = useCallback(async (name: string) => {
-    if (!name) return;
-    try {
-      await dbService.saveWorkspace(name, files);
-      setCurrentWorkspace(name);
-      if (!availableWorkspaces.includes(name)) {
-        setAvailableWorkspaces(prev => [...prev, name].sort());
-      }
-      handleAddChatMessage(`✅ Workspace "${name}" has been saved successfully.`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      handleAddChatMessage(`Error saving workspace: ${message}`);
-    }
-    setIsWorkspaceModalOpen(false);
-  }, [files, availableWorkspaces]);
-
-  const handleLoadWorkspace = useCallback(async (name: string) => {
-    if (!name || name === currentWorkspace) return;
-    try {
-      const workspace = await dbService.getWorkspace(name);
-      if (workspace) {
-        setFiles(workspace.files);
-        setCurrentWorkspace(workspace.name);
-        // Reset session state
-        setChatHistory([{ role: 'model', content: `✅ Loaded workspace "${name}".` }]);
-        setFileHistory([]);
-        setModifiedFiles({});
-        setSessionSummary('');
-        setAiMemory('');
-      } else {
-        handleAddChatMessage(`Workspace "${name}" not found.`);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      handleAddChatMessage(`Error loading workspace: ${message}`);
-    }
-  }, [currentWorkspace]);
-
-  const handleDeleteWorkspace = useCallback((name: string) => {
-    if (!name) return;
-    setWorkspaceToDelete(name);
-    setIsDeleteModalOpen(true);
-  }, []);
-
-  const confirmDeleteWorkspace = useCallback(async () => {
-    if (!workspaceToDelete) return;
-    try {
-      await dbService.deleteWorkspace(workspaceToDelete);
-      setAvailableWorkspaces(prev => prev.filter(ws => ws !== workspaceToDelete));
-      if (currentWorkspace === workspaceToDelete) {
-        setCurrentWorkspace('default');
-        setFiles([]);
-        setChatHistory([{ role: 'model', content: `🗑️ Workspace "${workspaceToDelete}" was deleted. Cleared current session.` }]);
-      } else {
-        handleAddChatMessage(`🗑️ Workspace "${workspaceToDelete}" has been deleted.`);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      handleAddChatMessage(`Error deleting workspace: ${message}`);
-    }
-    setIsDeleteModalOpen(false);
-    setWorkspaceToDelete(null);
-  }, [workspaceToDelete, currentWorkspace]);
-
-  // --- End Workspace Handlers ---
-
 
   const handleAcknowledgeFileChange = useCallback((filePath: string) => {
     setModifiedFiles(currentModified => {
@@ -670,16 +565,11 @@ export default function App(): React.ReactElement {
         model={model}
         isSummarizing={isSummarizing}
         sessionSummary={sessionSummary}
-        currentWorkspace={currentWorkspace}
-        availableWorkspaces={availableWorkspaces}
         onFileUpload={handleFileUpload} 
         onClearFiles={handleClearFiles}
         onOpenMemoryEditor={() => setIsMemoryEditorOpen(true)}
         onOpenSummaryViewer={() => setIsSummaryViewerOpen(true)}
         onSaveSessionSummary={handleSaveSessionSummary}
-        onSaveWorkspace={() => setIsWorkspaceModalOpen(true)}
-        onLoadWorkspace={handleLoadWorkspace}
-        onDeleteWorkspace={handleDeleteWorkspace}
         onViewFile={handleViewFile}
         onViewDiff={handleViewDiff}
         onAddChatMessage={handleAddChatMessage}
@@ -715,21 +605,6 @@ export default function App(): React.ReactElement {
         summary={sessionSummary}
         onClose={() => setIsSummaryViewerOpen(false)}
       />
-      <WorkspaceNameModal
-        isOpen={isWorkspaceModalOpen}
-        onClose={() => setIsWorkspaceModalOpen(false)}
-        onSave={handleSaveWorkspace}
-        suggestedName={currentWorkspace === 'default' && files.length > 0 ? (files[0].path.split('/')[0] || 'My Project') : currentWorkspace}
-      />
-      <ConfirmationModal
-        isOpen={isDeleteModalOpen}
-        title="Delete Workspace"
-        onConfirm={confirmDeleteWorkspace}
-        onCancel={() => setIsDeleteModalOpen(false)}
-      >
-        <p>Are you sure you want to delete the workspace "{workspaceToDelete}"?</p>
-        <p className="mt-2 text-sm text-gray-400">This action cannot be undone.</p>
-      </ConfirmationModal>
     </main>
   );
 }

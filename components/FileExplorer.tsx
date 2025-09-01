@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useState, useEffect } from 'react';
+import React, { useRef, useMemo, useState } from 'react';
 import type { UploadedFile, FileTreeNode, TreeNodeValue, GeminiModel } from '../types';
 import { UploadIcon, FolderIcon, FileIcon, TrashIcon, MemoryIcon, DownloadIcon, EyeIcon, SaveIcon, SummaryIcon } from './Icons';
 
@@ -8,16 +8,11 @@ interface FileExplorerProps {
   model: GeminiModel;
   isSummarizing: boolean;
   sessionSummary: string;
-  currentWorkspace: string;
-  availableWorkspaces: string[];
   onFileUpload: (files: FileList | null) => void;
   onClearFiles: () => void;
   onOpenMemoryEditor: () => void;
   onOpenSummaryViewer: () => void;
   onSaveSessionSummary: () => void;
-  onSaveWorkspace: () => void;
-  onLoadWorkspace: (name: string) => void;
-  onDeleteWorkspace: (name: string) => void;
   onViewFile: (file: UploadedFile) => void;
   onViewDiff: (file: UploadedFile) => void;
   onAddChatMessage: (message: string) => void;
@@ -175,20 +170,14 @@ const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, onViewDiff,
 export const FileExplorer = (props: FileExplorerProps): React.ReactElement => {
   const { 
     files, modifiedFiles, model, isSummarizing, sessionSummary, 
-    currentWorkspace, availableWorkspaces, onFileUpload, onClearFiles, 
-    onOpenMemoryEditor, onOpenSummaryViewer, onSaveSessionSummary, 
-    onSaveWorkspace, onLoadWorkspace, onDeleteWorkspace,
-    onViewFile, onViewDiff, onAddChatMessage, onAcknowledgeFileChange 
+    onFileUpload, onClearFiles, onOpenMemoryEditor, onOpenSummaryViewer, 
+    onSaveSessionSummary, onViewFile, onViewDiff, onAddChatMessage, 
+    onAcknowledgeFileChange 
   } = props;
   
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileTree = useMemo(() => buildFileTree(files || []), [files]);
-  const [selectedWorkspace, setSelectedWorkspace] = useState(currentWorkspace);
-
-  useEffect(() => {
-    setSelectedWorkspace(currentWorkspace);
-  }, [currentWorkspace]);
 
   const handleButtonClick = () => {
     inputRef.current?.click();
@@ -236,15 +225,8 @@ export const FileExplorer = (props: FileExplorerProps): React.ReactElement => {
     onAcknowledgeFileChange(file.path);
   };
 
-  const handleWorkspaceSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const name = e.target.value;
-      setSelectedWorkspace(name);
-      onLoadWorkspace(name);
-  };
-
   const hasFiles = files.length > 0;
   const hasSummary = !!sessionSummary;
-  const hasWorkspaces = availableWorkspaces.length > 0;
 
   return (
     <div 
@@ -304,46 +286,6 @@ export const FileExplorer = (props: FileExplorerProps): React.ReactElement => {
           </div>
         </div>
       </div>
-      
-      {/* Workspace Management Section */}
-      <div className="p-4 space-y-3 border-b border-gray-700/50">
-          <h3 className="text-sm font-semibold text-gray-300">Workspace</h3>
-          <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                  <select
-                      value={selectedWorkspace}
-                      onChange={handleWorkspaceSelect}
-                      disabled={!hasWorkspaces}
-                      className="w-full bg-gray-700/50 border border-gray-600/50 text-gray-300 text-sm rounded-md p-2 focus:ring-1 focus:ring-indigo-500 focus:outline-none disabled:opacity-50"
-                  >
-                      <option value="default" disabled={hasWorkspaces}>
-                          {currentWorkspace === 'default' ? 'Unsaved Workspace' : currentWorkspace}
-                      </option>
-                      {availableWorkspaces
-                        .filter(ws => ws !== currentWorkspace)
-                        .map(ws => <option key={ws} value={ws}>{ws}</option>)}
-                  </select>
-                   <button
-                        onClick={() => onDeleteWorkspace(selectedWorkspace)}
-                        disabled={!hasWorkspaces || selectedWorkspace === 'default'}
-                        className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                        title={hasWorkspaces ? `Delete workspace "${selectedWorkspace}"` : "No workspaces to delete"}
-                        aria-label="Delete workspace"
-                    >
-                        <TrashIcon className="w-5 h-5" />
-                    </button>
-              </div>
-               <button
-                  onClick={onSaveWorkspace}
-                  disabled={!hasFiles}
-                  className="w-full bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/50 font-semibold py-2 px-3 rounded-md transition-all duration-200 flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <SaveIcon className="w-4 h-4 mr-2" />
-                  Save Current Workspace
-              </button>
-          </div>
-      </div>
-
 
       <div className="flex-1 p-2 overflow-y-auto">
         {hasFiles ? (
@@ -352,7 +294,7 @@ export const FileExplorer = (props: FileExplorerProps): React.ReactElement => {
           <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 p-4">
             <UploadIcon className="w-12 h-12 mb-4" />
             <p className="text-sm">
-              {hasWorkspaces ? 'Select a workspace to load' : 'Upload a project folder to get started.'}
+              Upload a project folder to get started.
             </p>
           </div>
         )}
