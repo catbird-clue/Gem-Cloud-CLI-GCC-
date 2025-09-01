@@ -1,7 +1,3 @@
-
-
-
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { FileExplorer } from './components/FileExplorer';
 import { ChatInterface } from './components/ChatInterface';
@@ -390,7 +386,6 @@ export default function App(): React.ReactElement {
 
     const thoughtRegex = /\[GEMINI_THOUGHT\](.*?)\[\/GEMINI_THOUGHT\]/g;
     const memoryUpdateRegex = /\[GEMINI_MEMORY_UPDATE\]([\s\S]*?)\[\/GEMINI_MEMORY_UPDATE\]/g;
-    const fileUpdateRegex = /<changes>([\s\S]*?)<\/changes>/g;
     
     try {
       const responseStream = streamChatResponse(prompt, historyForApi, files, fileHistory, aiMemory, sessionSummary, model, stagedFiles);
@@ -458,11 +453,15 @@ export default function App(): React.ReactElement {
         finalResponse = finalResponse.replace(memoryUpdateRegex, '').trim();
       }
       
-      const fileMatch = finalResponse.match(fileUpdateRegex);
-      if (fileMatch && fileMatch[0]) {
+      // Robustly find and extract the <changes> XML block.
+      const xmlStartIndex = finalResponse.indexOf('<changes>');
+      const xmlEndIndex = finalResponse.lastIndexOf('</changes>');
+
+      if (xmlStartIndex !== -1 && xmlEndIndex > xmlStartIndex) {
         try {
-          const xmlString = fileMatch[0];
-          finalResponse = finalResponse.replace(fileUpdateRegex, '').trim();
+          const xmlString = finalResponse.substring(xmlStartIndex, xmlEndIndex + '</changes>'.length);
+          // Remove the XML block from the response that will be displayed in the chat.
+          finalResponse = (finalResponse.substring(0, xmlStartIndex) + finalResponse.substring(xmlEndIndex + '</changes>'.length)).trim();
           
           const parser = new DOMParser();
           const xmlDoc = parser.parseFromString(xmlString, "application/xml");
