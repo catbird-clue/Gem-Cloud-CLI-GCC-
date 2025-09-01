@@ -1,4 +1,5 @@
 
+
 /**
  * Extracts the full content of a file from a <change> XML block.
  * This function expects the XML to contain a single `<change>` tag with a `<content>` tag inside.
@@ -23,7 +24,15 @@ export function extractFullContentFromChangeXml(changeXmlString: string): string
     // The only supported method is full content replacement.
     const contentNode = changeNode.getElementsByTagName('content')[0];
     if (!contentNode) {
-        throw new Error(`Invalid change XML for file "${changeNode.getAttribute('file')}": A <content> tag with the full file content is required.`);
+        const childNodes = Array.from(changeNode.children).map(node => node.tagName).join(', ');
+        const fileAttr = changeNode.getAttribute('file');
+        let errorMsg = `Invalid change XML for file "${fileAttr}": A <content> tag with the full file content is required.`;
+        if (childNodes) {
+            errorMsg += ` Found these tags instead: <${childNodes}>.`;
+        } else {
+            errorMsg += ` The <change> tag was empty.`
+        }
+        throw new Error(errorMsg);
     }
 
     // The `textContent` will be null if the node is empty, so default to an empty string.
