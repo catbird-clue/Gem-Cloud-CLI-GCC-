@@ -7,6 +7,7 @@ Welcome to Gemini Cloud CLI, a web-based interface designed for collaborative so
 ## Core Features
 
 *   **Project Upload:** Upload your entire project folder to provide the AI with full context of your codebase.
+*   **Workspace Management:** Save your entire session (all files) as a named "workspace" in your browser's local storage. This prevents you from losing your work on a page refresh and allows you to easily switch between different projects.
 *   **Interactive Chat:** Communicate with Gemini to ask questions, request code changes, or generate new features. You can attach files directly to a prompt for one-off questions, stop generation at any time, and see the AI's real-time "thoughts" as it works.
 *   **File Management:** The AI can propose creating new files or modifying existing ones. You can review these changes in a user-friendly diff format and apply them with a single click.
 *   **Persistent Memory System:** The AI utilizes a two-part memory system stored as files within your project, ensuring context is never lost between sessions if you re-upload the same project.
@@ -49,8 +50,9 @@ This file is the AI's short-term memory for the **current task**. As your conver
     *   **c. Confirm:** Reply to the AI with a confirmation like "continue", "next", "proceed", or "продолжай".
 5.  **Repeat:** The AI will proceed to the next step in its plan. Repeat the "Apply and Continue" loop until the task is complete.
 6.  **Manage Context:** For very long tasks, keep an eye on the "Context Health" indicator. Use the **"Save session summary"** button if it turns yellow or red to keep the AI focused.
-7.  **Download Your Files:** Once finished, modified files are highlighted in green in the File Explorer. Hover over them to download the updated versions.
-8.  **Export & Clear:** You can export the chat history using the export button or clear the session with the trash can icon to start fresh.
+7.  **Save Your Work:** Use the "Save Workspace" button in the File Explorer panel to save your current set of files. You can load it back later using the dropdown menu. This protects your work from being lost.
+8.  **Download Your Files:** Once finished, modified files are highlighted in green in the File Explorer. Hover over them to download the updated versions.
+9.  **Export & Clear:** You can export the chat history using the export button or clear the session with the trash can icon to start fresh.
 
 ---
 
@@ -75,6 +77,7 @@ This application is built with:
 *   **React** & **TypeScript** for the frontend interface.
 *   **TailwindCSS** for styling.
 *   **@google/genai** SDK to communicate with the Gemini API.
+*   **IndexedDB** for client-side workspace storage.
 
 The application is a single-page app with no backend or build process. All code is contained within `index.html` and `index.tsx`. The AI's instructions, which dictate its behavior (including the file modification format), are located in `services/geminiService.ts`.
 
