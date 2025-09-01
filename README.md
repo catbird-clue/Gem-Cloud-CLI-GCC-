@@ -92,7 +92,6 @@ To ensure maximum reliability, the AI proposes file changes using a simple and r
     ```xml
     <changes>
       <change file="src/NewComponent.tsx">
-        <description>A new React component.</description>
         <content><![CDATA[import React from 'react';
 
     const NewComponent = () => {
@@ -102,7 +101,6 @@ To ensure maximum reliability, the AI proposes file changes using a simple and r
     export default NewComponent;]]></content>
       </change>
       <change file="src/api.js">
-        <description>Update the API endpoint.</description>
         <content><![CDATA[// New API endpoint
     const API_ENDPOINT = 'https://api.example.com/v2';
 

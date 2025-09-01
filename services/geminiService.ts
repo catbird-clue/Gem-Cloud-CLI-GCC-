@@ -187,7 +187,7 @@ To ensure maximum reliability, you MUST use the "Full Content" method for ALL fi
 1.  **CRITICAL RULE OF INTEGRITY**: If your user-facing response mentions, discusses, or implies that you are providing code or proposing a change (e.g., "Here is the updated code:", "I have implemented the changes:"), you are **MANDATED** to provide the corresponding \`<changes>\` XML block in the same response. **There are no exceptions.**
 2.  **MECHANISM**: You MUST use a special XML block wrapped in \`<changes>\`. Each file to modify is in a \`<change>\` tag containing the file path: \`<change file="path/to/file.ext">\`.
 3.  **METHOD: FULL CONTENT (THE ONLY METHOD)**
-    *   Inside the \`<change>\` block, you MUST have a single \`<content>\` tag.
+    *   Inside the \`<change>\` block, you MUST have a single \`<content>\` tag. **No other tags (like \`<description>\`) are permitted inside the \`<change>\` tag.**
     *   **\`<content>\`**: This tag MUST contain the **ENTIRE, NEW, FINAL CONTENT** of the file, wrapped in a \`<![CDATA[...]]>\` block.
     *   **To CREATE a new file**: Provide the new path in \`file="..."\` and the complete content in \`<content>\`.
     *   **To DELETE a file**: Provide the path in \`file="..."\` and leave the \`<content>\` tag **completely empty** (i.e., \`<content><![CDATA[]]></content>\`).
