@@ -61,8 +61,7 @@ export default function App(): React.ReactElement {
   const [model, setModel] = useState<GeminiModel>(AVAILABLE_MODELS[0]);
   const [viewingFile, setViewingFile] = useState<UploadedFile | null>(null);
   const [viewingDiff, setViewingDiff] = useState<{ oldFile: UploadedFile; newFile: UploadedFile } | null>(null);
-  const [aiThought, setAiThought] = useState<string | null>(null);
-
+  
   const stopGenerationRef = useRef(false);
   
   // Effect to load initial welcome message
@@ -261,7 +260,6 @@ export default function App(): React.ReactElement {
     }
 
     setIsLoading(true);
-    setAiThought("Generating session summary...");
     stopGenerationRef.current = false;
 
     try {
@@ -288,7 +286,6 @@ export default function App(): React.ReactElement {
     } finally {
       setIsLoading(false);
       stopGenerationRef.current = false;
-      setAiThought(null);
     }
   }, [isLoading, chatHistory, files]);
 
@@ -296,18 +293,15 @@ export default function App(): React.ReactElement {
     if (isLoading) return;
 
     setIsLoading(true);
-    setAiThought(null);
     stopGenerationRef.current = false;
     
+    // --- 1. Prepare history and user message ---
     const prunedHistory = pruneChatHistory(chatHistory);
-    const newMessages: ChatMessage[] = [];
+    let newMessages: ChatMessage[] = [];
 
     if (prunedHistory.length < chatHistory.length) {
       const warningMessage = "To make room for a response, older messages were not sent to the AI. For better long-term context, you can ask the AI to summarize the conversation into a file.";
-      const lastMessage = chatHistory[chatHistory.length - 1];
-      if (!lastMessage || !lastMessage.warning || lastMessage.warning !== warningMessage) {
-        newMessages.push({ role: 'model', content: '', warning: warningMessage });
-      }
+      newMessages.push({ role: 'model', content: '', warning: warningMessage });
     }
     
     const userMessage: ChatMessage = { 
@@ -316,74 +310,44 @@ export default function App(): React.ReactElement {
       attachments: stagedFiles.map(f => ({ name: f.name })) 
     };
     newMessages.push(userMessage);
-
-    const modelMessage: ChatMessage = { role: 'model', content: '' };
-    newMessages.push(modelMessage);
-
+    
     const historyForApi = [...prunedHistory, userMessage];
     setChatHistory(prev => [...prev, ...newMessages]);
     
-    let fullModelResponse = '';
-    let generationStopped = false;
-
-    // Use [\s\S] instead of . to correctly match across newlines.
-    const thoughtRegex = /\[GEMINI_THOUGHT\]([\s\S]*?)\[\/GEMINI_THOUGHT\]/g;
-    
     try {
+      // --- 2. Accumulate full response in the background ---
       const responseStream = streamChatResponse(prompt, historyForApi, files, fileHistory, model, stagedFiles);
-      
+      let fullModelResponse = '';
       for await (const chunk of responseStream) {
         if (stopGenerationRef.current) {
-          generationStopped = true;
+          fullModelResponse += '\n\n*(Generation stopped by user)*';
           break;
         }
         fullModelResponse += chunk;
-
-        const thoughts = [...fullModelResponse.matchAll(thoughtRegex)].map(match => match[1]);
-        if (thoughts.length > 0) {
-          setAiThought(thoughts[thoughts.length - 1]);
-        }
-        
-        let displayContent = fullModelResponse
-            .replace(thoughtRegex, '')
-            .replace(/<changes>[\s\S]*$/, '');
-
-        setChatHistory(prev => {
-          const newHistory = [...prev];
-          // Find the model message we added for this turn and update it.
-          // It should be the last message in the history.
-          const lastMessageIndex = newHistory.length - 1;
-          if (lastMessageIndex >= 0 && newHistory[lastMessageIndex].role === 'model') {
-            newHistory[lastMessageIndex] = { ...newHistory[lastMessageIndex], content: displayContent.trim() };
-            return newHistory;
-          }
-          return prev;
-        });
       }
 
-      if (generationStopped) {
-        fullModelResponse += '\n\n*(Generation stopped by user)*';
-      }
-      
-      let finalResponse = fullModelResponse;
+      // --- 3. Process the complete response ---
       let proposedChanges: ProposedChange[] | undefined = undefined;
+      let modelMessageError: string | undefined = undefined;
       
-      finalResponse = finalResponse.replace(thoughtRegex, '').trim();
+      // New "Ironclad" parsing logic
+      const changeBlockMarker = '<changes>';
+      const changeBlockIndex = fullModelResponse.indexOf(changeBlockMarker);
       
-      // New, more robust logic for extracting the <changes> XML block.
-      const changeBlockRegex = /<changes[^>]*>[\s\S]*?<\/changes>/g;
-      const matches = finalResponse.match(changeBlockRegex);
-      
-      if (matches && matches.length > 0) {
-        const xmlString = matches[matches.length - 1]; // Get the last matched block
-        try {
-          const trimmedXml = xmlString.trim();
-          if (!trimmedXml.startsWith('<changes') || !trimmedXml.endsWith('</changes>')) {
-            throw new Error("The AI's response included a malformed or incomplete file change block. The operation could not be completed.");
-          }
+      let conversationalPart = fullModelResponse;
+      let xmlPart = '';
 
-          // Remove the XML block from the response that will be displayed in the chat.
-          finalResponse = finalResponse.replace(xmlString, '').trim();
+      if (changeBlockIndex !== -1) {
+        conversationalPart = fullModelResponse.substring(0, changeBlockIndex);
+        xmlPart = fullModelResponse.substring(changeBlockIndex);
+      }
+      
+      if (xmlPart) {
+        try {
+          const trimmedXml = xmlPart.trim();
+          if (!trimmedXml.startsWith('<changes') || !trimmedXml.endsWith('</changes>')) {
+            throw new Error("The AI's response included a malformed or incomplete file change block.");
+          }
           
           const parser = new DOMParser();
           const xmlDoc = parser.parseFromString(trimmedXml, "application/xml");
@@ -409,8 +373,6 @@ export default function App(): React.ReactElement {
                 oldContent,
                 newContent,
             };
-
-            // Don't propose creating empty new files
             if (!(change.newContent === '' && !oldFile)) {
                 generatedChanges.push(change);
             }
@@ -421,61 +383,35 @@ export default function App(): React.ReactElement {
           }
 
         } catch (err) {
-          console.error("Failed to parse or apply file changes:", err);
+          console.error("Failed to parse file changes:", err);
           let errorMessage = "The AI proposed an invalid file change format.";
-          if (err instanceof Error) {
-            errorMessage += ` Details: ${err.message}`;
-          }
-           setChatHistory(prev => {
-              const newHistory = [...prev];
-              const lastMessageIndex = newHistory.length - 1;
-              if (lastMessageIndex >= 0 && newHistory[lastMessageIndex].role === 'model') {
-                  newHistory[lastMessageIndex] = { ...newHistory[lastMessageIndex], content: finalResponse, error: errorMessage, proposedChanges: undefined };
-                  return newHistory;
-              }
-              return prev;
-            });
+          if (err instanceof Error) errorMessage += ` Details: ${err.message}`;
+          modelMessageError = errorMessage;
         }
       }
       
-      setChatHistory(prev => {
-        const newHistory = [...prev];
-        const lastMessageIndex = newHistory.length - 1;
-        if (lastMessageIndex >= 0 && newHistory[lastMessageIndex].role === 'model') {
-          newHistory[lastMessageIndex] = { ...newHistory[lastMessageIndex], content: finalResponse, proposedChanges };
-          return newHistory;
-        }
-        return prev;
-      });
+      // --- 4. Add the final, complete message to the chat history ---
+      const finalModelMessage: ChatMessage = {
+          role: 'model',
+          content: conversationalPart.trim(),
+          proposedChanges: proposedChanges,
+          error: modelMessageError,
+      };
+      setChatHistory(prev => [...prev, finalModelMessage]);
 
     } catch (err) {
+      // --- 5. Handle API or other critical errors ---
       console.error("Gemini API error:", err);
-      let detail = err instanceof Error ? err.message : "An unexpected error occurred. Please check the console for details.";
-      
-      // Improved quota error handling
+      let detail = err instanceof Error ? err.message : "An unexpected error occurred.";
       if (detail.toLowerCase().includes('quota')) {
-        if (detail.toLowerCase().includes('plan and billing')) {
-          detail = "You have exceeded your usage quota (e.g., daily limit). Please check your Google AI Platform plan and billing details. The quota typically resets at midnight PST.";
-        } else {
-          detail = "The request rate is too high (requests per minute). The app retried, but the server remained busy. Please wait a moment before trying again.";
-        }
+         detail = "You have exceeded your usage quota (e.g., daily limit). Please check your Google AI Platform plan and billing details.";
       }
-      
       const errorMessage = `Gemini API Error: ${detail}`;
-      
-       setChatHistory(prev => {
-          const newHistory = [...prev];
-          const lastMessageIndex = newHistory.length - 1;
-          if (lastMessageIndex >= 0 && newHistory[lastMessageIndex].role === 'model') {
-            newHistory[lastMessageIndex] = { ...newHistory[lastMessageIndex], content: '', error: errorMessage };
-            return newHistory;
-          }
-          return [...prev.slice(0, -1), {role: 'model', content: '', error: errorMessage}];
-        });
+      setChatHistory(prev => [...prev, {role: 'model', content: '', error: errorMessage}]);
     } finally {
+      // --- 6. Cleanup ---
       setIsLoading(false);
       stopGenerationRef.current = false;
-      setAiThought(null);
     }
   }, [isLoading, files, model, chatHistory, fileHistory]);
 
@@ -498,7 +434,6 @@ export default function App(): React.ReactElement {
         <ChatInterface 
           chatHistory={chatHistory}
           isLoading={isLoading}
-          aiThought={aiThought}
           onPromptSubmit={handlePromptSubmit}
           onApplyChanges={handleApplyChanges}
           onStopGeneration={handleStopGeneration}

@@ -7,13 +7,12 @@ import { SendIcon, ExportIcon, StopIcon, ThoughtIcon, PaperclipIcon, FileIcon, C
 interface ChatInterfaceProps {
   chatHistory: ChatMessageType[];
   isLoading: boolean;
-  aiThought: string | null;
   onPromptSubmit: (prompt: string, stagedFiles: File[]) => void;
   onApplyChanges: (changes: ProposedChange[]) => void;
   onStopGeneration: () => void;
 }
 
-export const ChatInterface = ({ chatHistory, isLoading, aiThought, onPromptSubmit, onApplyChanges, onStopGeneration }: ChatInterfaceProps): React.ReactElement => {
+export const ChatInterface = ({ chatHistory, isLoading, onPromptSubmit, onApplyChanges, onStopGeneration }: ChatInterfaceProps): React.ReactElement => {
   const [prompt, setPrompt] = useState('');
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -247,19 +246,15 @@ export const ChatInterface = ({ chatHistory, isLoading, aiThought, onPromptSubmi
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {chatHistory.map((message, index) => {
-          const isLastMessage = index === chatHistory.length - 1;
-          const isStreaming = isLoading && isLastMessage && message.role === 'model';
-          return (
+        {chatHistory.map((message, index) => (
             <ChatMessage
               key={index}
               message={message}
-              isStreaming={isStreaming}
               onApplyChanges={onApplyChanges}
             />
-          );
-        })}
-        {isLoading && chatHistory[chatHistory.length - 1]?.role === 'user' && (
+          )
+        )}
+        {isLoading && (
           <ChatMessage
             message={{ role: 'model', content: '' }}
             isLoading={true}
@@ -268,12 +263,7 @@ export const ChatInterface = ({ chatHistory, isLoading, aiThought, onPromptSubmi
         )}
         <div ref={messagesEndRef} />
       </div>
-      {isLoading && aiThought && (
-        <div className="px-6 pb-2 text-sm text-gray-400 italic flex items-center justify-center animate-pulse">
-            <ThoughtIcon className="w-4 h-4 mr-2" />
-            {aiThought}
-        </div>
-      )}
+
       <div className="p-4 bg-gray-900/50 border-t border-gray-700/50">
         {isLoading ? (
           <button

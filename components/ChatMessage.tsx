@@ -5,12 +5,11 @@ import { FileChangePreview } from './FileChangePreview';
 
 interface ChatMessageProps {
   message: ChatMessageType;
-  isStreaming?: boolean;
   isLoading?: boolean;
   onApplyChanges: (changes: ProposedChange[]) => void;
 }
 
-export const ChatMessage = memo(({ message, isStreaming = false, isLoading = false, onApplyChanges }: ChatMessageProps): React.ReactElement => {
+export const ChatMessage = memo(({ message, isLoading = false, onApplyChanges }: ChatMessageProps): React.ReactElement => {
   const isModel = message.role === 'model';
   const [isHandled, setIsHandled] = useState(false);
   const [action, setAction] = useState<'applied' | 'rejected' | null>(null);
