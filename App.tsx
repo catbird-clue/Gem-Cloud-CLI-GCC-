@@ -384,7 +384,8 @@ export default function App(): React.ReactElement {
     let fullModelResponse = '';
     let generationStopped = false;
 
-    const thoughtRegex = /\[GEMINI_THOUGHT\](.*?)\[\/GEMINI_THOUGHT\]/g;
+    // Use [\s\S] instead of . to correctly match across newlines.
+    const thoughtRegex = /\[GEMINI_THOUGHT\]([\s\S]*?)\[\/GEMINI_THOUGHT\]/g;
     const memoryUpdateRegex = /\[GEMINI_MEMORY_UPDATE\]([\s\S]*?)\[\/GEMINI_MEMORY_UPDATE\]/g;
     
     try {
