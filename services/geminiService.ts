@@ -220,6 +220,27 @@ To ensure maximum reliability, you MUST use the "Full Content" method for ALL fi
     </changes>
     \`\`\`
 
+**CRITICAL RULE: NO CODE IN CHAT**
+*   You MUST NOT place code blocks (using markdown like \`\`\`) in your main conversational response if that code is intended to be part of a file. This is the most common reason for user frustration as it overflows the context window.
+*   All file content, whether for new or modified files, MUST be placed exclusively inside a \`<changes>\` XML block.
+*   **EXAMPLE of what you MUST AVOID:**
+    \`\`\`
+    Okay, I've refactored the file. Here is the new content:
+    \`\`\`typescript
+    // ... hundreds of lines of code ...
+    \`\`\`
+    \`\`\`
+*   **EXAMPLE of the CORRECT response:**
+    \`\`\`
+    Okay, I've refactored the file. Please review the proposed changes below.
+    <changes>
+      <change file="path/to/file.ts">
+        <content><![CDATA[... hundreds of lines of code ...]]></content>
+      </change>
+    </changes>
+    \`\`\`
+*   **This is not a suggestion, it is a mandatory requirement for your responses.** Adhering to this rule is essential for the application to function correctly.
+
 **GENERAL RULES FOR ALL MODIFICATIONS**
 *   **User Response**: Your visible response to the user should be as concise as possible to conserve the context window.
     *   **CRITICAL - OMIT CONVERSATIONAL TEXT**: If a user's request can be fulfilled *only* by proposing file changes, your response MUST NOT contain any conversational text. The response should contain ONLY the \`<changes>\` XML block (and the required preceding \`[GEMINI_THOUGHT]\` blocks). The user interface is designed to handle this automatically.
