@@ -1,13 +1,11 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { FileExplorer } from './components/FileExplorer';
 import { ChatInterface } from './components/ChatInterface';
-import { MemoryEditor } from './components/MemoryEditor';
 import { FileViewer } from './components/FileViewer';
 import { FileDiffViewer } from './components/FileDiffViewer';
-import { SessionSummaryViewer } from './components/SessionSummaryViewer';
 import type { UploadedFile, ChatMessage, ProposedChange, GeminiModel } from './types';
 import { AVAILABLE_MODELS } from './types';
-import { streamChatResponse, summarizeSession } from './services/geminiService';
+import { streamChatResponse, summarizeChatResponse } from './services/geminiService';
 import { extractFullContentFromChangeXml } from './utils/patchUtils';
 
 const MAX_HISTORY_LENGTH = 20; // Keep the last 20 file states
@@ -60,12 +58,7 @@ export default function App(): React.ReactElement {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [fileHistory, setFileHistory] = useState<UploadedFile[][]>([]); // Holds previous states of the 'files' array
   const [isLoading, setIsLoading] = useState(false);
-  const [isSummarizing, setIsSummarizing] = useState(false);
-  const [aiMemory, setAiMemory] = useState<string>('');
-  const [sessionSummary, setSessionSummary] = useState<string>('');
   const [model, setModel] = useState<GeminiModel>(AVAILABLE_MODELS[0]);
-  const [isMemoryEditorOpen, setIsMemoryEditorOpen] = useState(false);
-  const [isSummaryViewerOpen, setIsSummaryViewerOpen] = useState(false);
   const [viewingFile, setViewingFile] = useState<UploadedFile | null>(null);
   const [viewingDiff, setViewingDiff] = useState<{ oldFile: UploadedFile; newFile: UploadedFile } | null>(null);
   const [aiThought, setAiThought] = useState<string | null>(null);
@@ -81,17 +74,6 @@ export default function App(): React.ReactElement {
       }]);
   }, []);
 
-  // Effect to derive AI memory and session summary from the project files
-  useEffect(() => {
-    const memoryFilePath = 'AI_Memory/Gemini.md';
-    const memoryFile = files.find(f => f.path === memoryFilePath);
-    setAiMemory(memoryFile?.content || '');
-
-    const summaryFilePath = 'AI_Memory/context.md';
-    const summaryFile = files.find(f => f.path === summaryFilePath);
-    setSessionSummary(summaryFile?.content || '');
-  }, [files]);
-
   const handleClearFiles = useCallback(() => {
     if (files.length === 0) return;
     
@@ -99,8 +81,6 @@ export default function App(): React.ReactElement {
         setFiles([]);
         setModifiedFiles({});
         setFileHistory([]);
-        setSessionSummary('');
-        setAiMemory('');
         setChatHistory([{
             role: 'model',
             content: `Project files have been cleared. You are now in a new, empty session.`
@@ -164,84 +144,7 @@ export default function App(): React.ReactElement {
       setIsLoading(false);
     }
   }, [files]);
-
-  const handleSaveMemory = useCallback((newMemory: string) => {
-    const memoryFilePath = 'AI_Memory/Gemini.md';
-
-    setFileHistory(prev => [files, ...prev].slice(0, MAX_HISTORY_LENGTH));
-    
-    setFiles(currentFiles => {
-      const updatedFiles = [...currentFiles];
-      const fileIndex = updatedFiles.findIndex(f => f.path === memoryFilePath);
-      if (fileIndex !== -1) {
-        updatedFiles[fileIndex] = { ...updatedFiles[fileIndex], content: newMemory };
-      } else {
-        updatedFiles.push({ path: memoryFilePath, content: newMemory });
-      }
-      return updatedFiles.sort((a, b) => a.path.localeCompare(b.path));
-    });
-    
-    setModifiedFiles(currentModified => ({
-      ...currentModified,
-      [memoryFilePath]: (currentModified[memoryFilePath] || 0) + 1,
-    }));
-    
-    setIsMemoryEditorOpen(false);
-    setChatHistory(prev => [...prev, {
-      role: 'model',
-      content: `AI long-term memory has been saved to \`${memoryFilePath}\`.`
-    }]);
-  }, [files]);
   
-  const handleSaveSessionSummary = useCallback(async () => {
-    if (isSummarizing || chatHistory.length < 2) {
-      return;
-    }
-
-    const summaryFilePath = 'AI_Memory/context.md';
-
-    setIsSummarizing(true);
-    setChatHistory(prev => [...prev, { role: 'model', content: 'Generating session summary...' }]);
-
-    try {
-      const summary = await summarizeSession(chatHistory, sessionSummary);
-      
-      setFileHistory(prev => [files, ...prev].slice(0, MAX_HISTORY_LENGTH));
-          
-      setFiles(currentFiles => {
-          const updatedFiles = [...currentFiles];
-          const fileIndex = updatedFiles.findIndex(f => f.path === summaryFilePath);
-          if (fileIndex !== -1) {
-              updatedFiles[fileIndex] = { ...updatedFiles[fileIndex], content: summary };
-          } else {
-              updatedFiles.push({ path: summaryFilePath, content: summary });
-          }
-          return updatedFiles.sort((a, b) => a.path.localeCompare(b.path));
-      });
-
-      setModifiedFiles(currentModified => ({
-          ...currentModified,
-          [summaryFilePath]: (currentModified[summaryFilePath] || 0) + 1
-      }));
-      
-      setChatHistory(prev => [
-        ...prev.slice(0, -1),
-        { role: 'model', content: `✅ Session context has been saved to \`${summaryFilePath}\`.` }
-      ]);
-    } catch (err) {
-      console.error("Failed to summarize session:", err);
-      // The service layer now provides a more user-friendly message for quota errors.
-      const detail = err instanceof Error ? err.message : 'Unknown error';
-      const errorMessage = `Failed to generate summary: ${detail}`;
-      setChatHistory(prev => [
-        ...prev.slice(0, -1),
-        { role: 'model', content: '', error: errorMessage }
-      ]);
-    } finally {
-      setIsSummarizing(false);
-    }
-  }, [chatHistory, sessionSummary, isSummarizing, files]);
-
   const handleAcknowledgeFileChange = useCallback((filePath: string) => {
     setModifiedFiles(currentModified => {
       const updatedModified = { ...currentModified };
@@ -350,6 +253,45 @@ export default function App(): React.ReactElement {
     setChatHistory(prev => [...prev, { role: 'model', content }]);
   }, []);
 
+  const handleSummarizeSession = useCallback(async () => {
+    if (isLoading || chatHistory.length < 2) {
+      const message = chatHistory.length < 2 ? "Not enough conversation to summarize." : "Please wait for the current task to complete.";
+      setChatHistory(prev => [...prev, {role: 'model', content: '', warning: message }]);
+      return;
+    }
+
+    setIsLoading(true);
+    setAiThought("Generating session summary...");
+    stopGenerationRef.current = false;
+
+    try {
+      const summaryChange = await summarizeChatResponse(chatHistory, files);
+
+      if (stopGenerationRef.current) {
+        throw new Error("Generation stopped by user");
+      }
+
+      setChatHistory(prev => [...prev, {
+        role: 'model',
+        content: 'I have generated a summary of our conversation. Please review and apply the changes to save it for future reference.',
+        proposedChanges: [summaryChange]
+      }]);
+
+    } catch (err) {
+      console.error("Session summary error:", err);
+      let detail = err instanceof Error ? err.message : "An unexpected error occurred.";
+      if (detail.includes("stop")) {
+          detail = "Session summary generation was stopped."
+      }
+      const errorMessage = `Failed to generate session summary: ${detail}`;
+      setChatHistory(prev => [...prev, {role: 'model', content: '', error: errorMessage}]);
+    } finally {
+      setIsLoading(false);
+      stopGenerationRef.current = false;
+      setAiThought(null);
+    }
+  }, [isLoading, chatHistory, files]);
+
   const handlePromptSubmit = useCallback(async (prompt: string, stagedFiles: File[]) => {
     if (isLoading) return;
 
@@ -361,7 +303,7 @@ export default function App(): React.ReactElement {
     const newMessages: ChatMessage[] = [];
 
     if (prunedHistory.length < chatHistory.length) {
-      const warningMessage = "To make room for a response, older messages were not sent to the AI. For better long-term context, please **Save session summary**.";
+      const warningMessage = "To make room for a response, older messages were not sent to the AI. For better long-term context, you can ask the AI to summarize the conversation into a file.";
       const lastMessage = chatHistory[chatHistory.length - 1];
       if (!lastMessage || !lastMessage.warning || lastMessage.warning !== warningMessage) {
         newMessages.push({ role: 'model', content: '', warning: warningMessage });
@@ -386,10 +328,9 @@ export default function App(): React.ReactElement {
 
     // Use [\s\S] instead of . to correctly match across newlines.
     const thoughtRegex = /\[GEMINI_THOUGHT\]([\s\S]*?)\[\/GEMINI_THOUGHT\]/g;
-    const memoryUpdateRegex = /\[GEMINI_MEMORY_UPDATE\]([\s\S]*?)\[\/GEMINI_MEMORY_UPDATE\]/g;
     
     try {
-      const responseStream = streamChatResponse(prompt, historyForApi, files, fileHistory, aiMemory, sessionSummary, model, stagedFiles);
+      const responseStream = streamChatResponse(prompt, historyForApi, files, fileHistory, model, stagedFiles);
       
       for await (const chunk of responseStream) {
         if (stopGenerationRef.current) {
@@ -405,7 +346,6 @@ export default function App(): React.ReactElement {
         
         let displayContent = fullModelResponse
             .replace(thoughtRegex, '')
-            .replace(memoryUpdateRegex, '')
             .replace(/<changes>[\s\S]*$/, '');
 
         setChatHistory(prev => {
@@ -429,30 +369,6 @@ export default function App(): React.ReactElement {
       let proposedChanges: ProposedChange[] | undefined = undefined;
       
       finalResponse = finalResponse.replace(thoughtRegex, '').trim();
-
-      const memoryMatch = finalResponse.match(memoryUpdateRegex);
-      if (memoryMatch && memoryMatch[0]) {
-        const newMemoryContent = memoryMatch[0].replace(/\[\/?GEMINI_MEMORY_UPDATE\]/g, '').trim();
-        const memoryFilePath = 'AI_Memory/Gemini.md';
-        
-        setFileHistory(prev => [files, ...prev].slice(0, MAX_HISTORY_LENGTH));
-        setFiles(currentFiles => {
-            const updatedFiles = [...currentFiles];
-            const fileIndex = updatedFiles.findIndex(f => f.path === memoryFilePath);
-            if (fileIndex !== -1) {
-                updatedFiles[fileIndex] = { ...updatedFiles[fileIndex], content: newMemoryContent };
-            } else {
-                updatedFiles.push({ path: memoryFilePath, content: newMemoryContent });
-            }
-            return updatedFiles.sort((a, b) => a.path.localeCompare(b.path));
-        });
-        setModifiedFiles(currentModified => ({
-            ...currentModified,
-            [memoryFilePath]: (currentModified[memoryFilePath] || 0) + 1,
-        }));
-        
-        finalResponse = finalResponse.replace(memoryUpdateRegex, '').trim();
-      }
       
       // New, more robust logic for extracting the <changes> XML block.
       const changeBlockRegex = /<changes[^>]*>[\s\S]*?<\/changes>/g;
@@ -461,11 +377,16 @@ export default function App(): React.ReactElement {
       if (matches && matches.length > 0) {
         const xmlString = matches[matches.length - 1]; // Get the last matched block
         try {
+          const trimmedXml = xmlString.trim();
+          if (!trimmedXml.startsWith('<changes') || !trimmedXml.endsWith('</changes>')) {
+            throw new Error("The AI's response included a malformed or incomplete file change block. The operation could not be completed.");
+          }
+
           // Remove the XML block from the response that will be displayed in the chat.
           finalResponse = finalResponse.replace(xmlString, '').trim();
           
           const parser = new DOMParser();
-          const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+          const xmlDoc = parser.parseFromString(trimmedXml, "application/xml");
           const errorNode = xmlDoc.querySelector('parsererror');
           if (errorNode) {
             throw new Error(`XML parsing error: ${errorNode.textContent}`);
@@ -556,7 +477,7 @@ export default function App(): React.ReactElement {
       stopGenerationRef.current = false;
       setAiThought(null);
     }
-  }, [isLoading, files, aiMemory, sessionSummary, model, chatHistory, fileHistory]);
+  }, [isLoading, files, model, chatHistory, fileHistory]);
 
   return (
     <main className="flex h-screen w-screen bg-gray-900 text-gray-200">
@@ -564,17 +485,14 @@ export default function App(): React.ReactElement {
         files={files}
         modifiedFiles={modifiedFiles}
         model={model}
-        isSummarizing={isSummarizing}
-        sessionSummary={sessionSummary}
+        isLoading={isLoading}
         onFileUpload={handleFileUpload} 
         onClearFiles={handleClearFiles}
-        onOpenMemoryEditor={() => setIsMemoryEditorOpen(true)}
-        onOpenSummaryViewer={() => setIsSummaryViewerOpen(true)}
-        onSaveSessionSummary={handleSaveSessionSummary}
         onViewFile={handleViewFile}
         onViewDiff={handleViewDiff}
         onAddChatMessage={handleAddChatMessage}
         onAcknowledgeFileChange={handleAcknowledgeFileChange}
+        onSummarizeSession={handleSummarizeSession}
       />
       <div className="flex-1 flex flex-col bg-gray-800/50">
         <ChatInterface 
@@ -586,12 +504,6 @@ export default function App(): React.ReactElement {
           onStopGeneration={handleStopGeneration}
         />
       </div>
-      <MemoryEditor
-        isOpen={isMemoryEditorOpen}
-        memory={aiMemory}
-        onSave={handleSaveMemory}
-        onClose={() => setIsMemoryEditorOpen(false)}
-      />
       <FileViewer
         file={viewingFile}
         onClose={() => setViewingFile(null)}
@@ -600,11 +512,6 @@ export default function App(): React.ReactElement {
         diff={viewingDiff}
         onClose={() => setViewingDiff(null)}
         onRevert={handleRevertFile}
-      />
-      <SessionSummaryViewer
-        isOpen={isSummaryViewerOpen}
-        summary={sessionSummary}
-        onClose={() => setIsSummaryViewerOpen(false)}
       />
     </main>
   );

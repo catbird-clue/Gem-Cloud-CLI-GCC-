@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-import type { UploadedFile, GeminiModel, ChatMessage } from '../types';
+import type { UploadedFile, GeminiModel, ChatMessage, ProposedChange } from '../types';
 
 const API_KEY = process.env.API_KEY;
 
@@ -51,9 +51,7 @@ const buildSystemInstruction = (
   prompt: string,
   projectFiles: UploadedFile[],
   allFilePaths: string[],
-  fileHistory: UploadedFile[][],
-  memory: string,
-  sessionSummary: string
+  fileHistory: UploadedFile[][]
 ): string => {
   const baseInstruction = `You are Gemini CLI, an expert AI assistant that helps developers with their code.
 You are running inside a web-based graphical interface called "Gemini Cloud CLI". All your interactions are with a user through this graphical interface.
@@ -149,36 +147,6 @@ To prevent the user from thinking you are frozen or stuck, you MUST provide imme
 ---
 `;
 
-  const memoryInstruction = `
----
-SPECIAL INSTRUCTIONS: AI LONG-TERM MEMORY
-This is for persistent, global instructions that apply to all conversations. It is independent of the session summary.
-
-1.  **CONTEXT**: The current content of your long-term memory is provided below under "AI LONG-TERM MEMORY". You MUST adhere to these instructions in all your actions.
-2.  **UPDATE COMMANDS**: The user can ask you to update this memory with commands like "remember...", "save this:", "don't forget that...", "add to memory:". These are direct commands to alter your core instructions.
-3.  **UPDATE MECHANISM**: To update the memory, you MUST include a special block in your response. This block is for the application and will be hidden from the user.
-    -   **FORMAT**: The format is critical. You must use: \`[GEMINI_MEMORY_UPDATE]the new, full content of the memory[/GEMINI_MEMORY_UPDATE]\`
-    -   **CONTENT**: Inside the block, you must place the *entire* new memory content, including any previous content you want to keep. Do NOT just write the change; write the complete, updated memory.
-    -   **EXAMPLE**: If memory is "User likes Python." and user says "Remember I also like TypeScript", your response MUST include: \`[GEMINI_MEMORY_UPDATE]User likes Python. User also likes TypeScript.[/GEMINI_MEMORY_UPDATE]\`
-4.  **USER RESPONSE**: Your visible response to the user should be a natural and confirm the action (e.g., "Okay, I've updated my memory."). Do NOT mention the special block syntax to the user.
-5.  **CRITICAL DISTINCTION - MEMORY VS. SESSION CONTEXT**: This Long-Term Memory is separate from the "Session Context/Summary".
-    -   **Long-Term Memory** (this section) is for permanent, global rules.
-    -   **Session Context** is a summary of the current chat session to help you remember what you're working on for next time. It is managed by the application via a "Save session summary" button.
-    -   **You MUST NOT use the \`[GEMINI_MEMORY_UPDATE]\` mechanism to save session summaries or notes about the current conversation.** This mechanism is ONLY for changing your core, long-term instructions when explicitly commanded by the user with phrases like "update your memory" or "remember...". A request to "update context" or "update your summary for next time" is NOT a request to update long-term memory. Instead, for such requests, you should respond by suggesting the user click the "Save session summary" button.
----
-`;
-
-  const sessionContextFileInstruction = `
----
-SPECIAL INSTRUCTIONS: SESSION CONTEXT FILE
-There is a single, dedicated file for storing the session summary/context: \`AI_Memory/context.md\`.
-
-1.  **DO NOT CREATE OTHER CONTEXT FILES**: You must not create any other files for storing session summaries or context notes (e.g., \`project_folder/context.md\`).
-2.  **USE THE DEDICATED FILE**: All session summary information is managed by the application through the \`AI_Memory/context.md\` file. The content of this file is provided to you at the beginning of each prompt under the "CURRENT SESSION CONTEXT (SUMMARY)" section.
-3.  **USER REQUESTS TO SAVE CONTEXT**: If the user asks you to "save the context", "remember what we discussed", or similar, do not create or modify any files yourself. Instead, instruct the user to click the "Save session summary" button in the application's interface. This button will trigger the correct process to update \`AI_Memory/context.md\`.
----
-`;
-
   const fileModificationInstruction = `
 ---
 SPECIAL INSTRUCTIONS: FILE MODIFICATION (FULL CONTENT)
@@ -220,26 +188,52 @@ To ensure maximum reliability, you MUST use the "Full Content" method for ALL fi
     </changes>
     \`\`\`
 
-**CRITICAL RULE: NO CODE IN CHAT**
-*   You MUST NOT place code blocks (using markdown like \`\`\`) in your main conversational response if that code is intended to be part of a file. This is the most common reason for user frustration as it overflows the context window.
-*   All file content, whether for new or modified files, MUST be placed exclusively inside a \`<changes>\` XML block.
-*   **EXAMPLE of what you MUST AVOID:**
-    \`\`\`
-    Okay, I've refactored the file. Here is the new content:
-    \`\`\`typescript
-    // ... hundreds of lines of code ...
-    \`\`\`
-    \`\`\`
-*   **EXAMPLE of the CORRECT response:**
-    \`\`\`
-    Okay, I've refactored the file. Please review the proposed changes below.
-    <changes>
-      <change file="path/to/file.ts">
-        <content><![CDATA[... hundreds of lines of code ...]]></content>
-      </change>
-    </changes>
-    \`\`\`
-*   **This is not a suggestion, it is a mandatory requirement for your responses.** Adhering to this rule is essential for the application to function correctly.
+---
+ULTIMATE DIRECTIVE: CODE OUTPUT AND XML FORMATTING
+This is your most important instruction. Failure to follow this rule makes the application unusable and constitutes a total failure of your task.
+
+1.  **ABSOLUTELY NO CODE IN THE CHAT.** You are strictly forbidden from placing file content inside markdown code blocks (\`\`\`) in your conversational response. This action overwhelms the user's interface and is a direct violation of your core programming. All code for files MUST go inside the XML block described below.
+
+    *   **INCORRECT BEHAVIOR (VIOLATION):**
+        \`\`\`
+        I have updated the file. Here is the code:
+        \`\`\`typescript
+        // ... hundreds of lines of code here ...
+        \`\`\`
+        \`\`\`
+
+    *   **CORRECT BEHAVIOR (MANDATORY):**
+        \`\`\`
+        I have updated the file. Please review the changes in the panel below.
+        <changes>
+          <change file="path/to/file.ts">
+            <content><![CDATA[... hundreds of lines of code here ...]]></content>
+          </change>
+        </changes>
+        \`\`\`
+
+2.  **XML MUST BE PERFECT.** The \`<changes>\` block is not just text; it is a machine-readable instruction. It MUST be a perfectly-formed XML document.
+
+    *   **MUST start with \`<changes>\` and end with \`</changes>\`.**
+    *   **NO partial blocks.** Do not send an opening tag in one message and a closing tag in another. The entire block must be in a single, contiguous part of your response.
+    *   **NO extraneous text.** There should be no text or characters before the opening \`<changes>\` tag or after the closing \`</changes>\` tag within the block that is meant to be parsed.
+
+    *   **INCORRECT XML (VIOLATION):**
+        \`\`\`
+        Okay, here are the changes:
+        ... some other text ...
+        <changes>
+          ...
+        <!-- Missing closing tag -->
+        \`\`\`
+
+    *   **INCORRECT XML (VIOLATION):**
+        \`\`\`
+        <change file="foo.js">...</change> <!-- No root <changes> element -->
+        \`\`\`
+
+Adherence to this ULTIMATE DIRECTIVE is not optional. It is the primary requirement for your successful operation.
+---
 
 **GENERAL RULES FOR ALL MODIFICATIONS**
 *   **User Response**: Your visible response to the user should be as concise as possible to conserve the context window.
@@ -250,15 +244,6 @@ To ensure maximum reliability, you MUST use the "Full Content" method for ALL fi
 *   **Proactive Updates**: When you propose a code change, you MUST ALSO proactively update relevant documentation files (\`CHANGELOG.md\`, \`README.md\`, \`TODO.md\`) in the same \`<changes>\` block.
 ---
 `;
-  
-  const memoryContext = memory 
-    ? `--- AI LONG-TERM MEMORY ---\n${memory}\n--- END AI LONG-TERM MEMORY ---\n` 
-    : '--- AI LONG-TERM MEMORY ---\n(empty)\n--- END AI LONG-TERM MEMORY ---\n';
-
-  const sessionSummaryContext = sessionSummary
-    ? `--- CURRENT SESSION CONTEXT (SUMMARY) ---\nThis is a summary of our work so far. Use it to understand the current state of the project and the user's goals. This context should be prioritized over older information in the chat history.\n\n${sessionSummary}\n--- END SESSION CONTEXT ---\n`
-    : '--- CURRENT SESSION CONTEXT (SUMMARY) ---\n(No summary saved yet. This is the beginning of the session.)\n--- END SESSION CONTEXT ---\n';
-
 
   let undoContext = '';
   const undoRegex = /\b(undo|revert|roll back|откат|отмени|верни)\b/i;
@@ -289,7 +274,7 @@ ${previousFile.content}
   }
 
 
-  const instructions: string[] = [baseInstruction, sequentialExecutionInstruction, thoughtInstruction, memoryInstruction, sessionContextFileInstruction];
+  const instructions: string[] = [baseInstruction, sequentialExecutionInstruction, thoughtInstruction];
   let projectContext = '';
   
   if (allFilePaths.length > 0) {
@@ -313,9 +298,7 @@ ${fileContents}
      projectContext = `The user has not uploaded any files yet.`;
   }
 
-  // Add contexts in the correct order: memory, then session, then potential undo, then project files
-  instructions.push(memoryContext);
-  instructions.push(sessionSummaryContext);
+  // Add contexts in the correct order: potential undo, then project files
   if (undoContext) {
     instructions.push(undoContext);
   }
@@ -344,13 +327,11 @@ export const streamChatResponse = async function* (
   chatHistory: ChatMessage[],
   files: UploadedFile[],
   fileHistory: UploadedFile[][],
-  memory: string,
-  sessionSummary: string,
   model: GeminiModel,
   stagedFiles: File[]
 ): AsyncGenerator<string> {
     const allFilePaths = files.map(f => f.path);
-    const systemInstruction = buildSystemInstruction(prompt, files, allFilePaths, fileHistory, memory, sessionSummary);
+    const systemInstruction = buildSystemInstruction(prompt, files, allFilePaths, fileHistory);
     
     // Use the explicit ModelContent[] type to ensure the array can hold mixed part types later.
     const contents: ModelContent[] = chatHistory.slice(0, -1).map(message => ({
@@ -386,62 +367,40 @@ export const streamChatResponse = async function* (
     }
 };
 
-export const summarizeSession = async (chatHistory: ChatMessage[], previousSummary: string): Promise<string> => {
-    const summarizationPrompt = `You are a summarization expert. Your task is to create a new, consolidated summary of a software development session.
-You will be given a PREVIOUS SUMMARY and the NEW CONVERSATION HISTORY.
-Your goal is to create a new summary that integrates the key information from the new conversation while retaining the most important, still-relevant points from the previous summary.
-Act like a rolling context window: keep the summary concise and discard older information if it has been superseded or is no longer relevant to the user's current focus.
-The user's name is Vadim. The conversation is in Russian. The summary MUST be in Russian.
+export const summarizeChatResponse = async (
+  chatHistory: ChatMessage[],
+  files: UploadedFile[]
+): Promise<ProposedChange> => {
+  const systemInstruction = `You are an expert summarizer. Your task is to summarize the provided chat history into a concise, well-structured markdown document.
+Focus on key decisions, important code snippets, file changes, and unresolved questions. The user will use this summary to restore context in a future session.
+Be thorough but not overly verbose. Use headings and bullet points for clarity.`;
 
-PREVIOUS SUMMARY:
----
-${previousSummary || "(No previous summary)"}
----
+  const historyText = chatHistory
+    .map(msg => `**${msg.role === 'user' ? 'User' : 'Gemini'}:**\n${msg.content || ''}${msg.warning ? `\n*[Warning: ${msg.warning}]*` : ''}${msg.error ? `\n*[Error: ${msg.error}]*` : ''}`)
+    .join('\n\n---\n\n');
+  
+  const contents = `${historyText}`;
 
-NEW CONVERSATION HISTORY:
----
-${chatHistory.map(m => `${m.role}: ${m.content}`).join('\n')}
----
+  const response = await callGeminiWithRetry<GenerateContentResponse>(() =>
+    ai.models.generateContent({
+      model: 'gemini-2.5-flash', // Use a fast model for summarization
+      contents,
+      config: {
+        systemInstruction,
+        temperature: 0.5,
+      }
+    })
+  );
 
-Now, generate the new, consolidated summary. Output ONLY the summary text, nothing else.`;
+  const summaryContent = response.text.trim();
+  const summaryFilePath = 'AI_Memory/session_summary.md';
 
-    // We don't want the summarization prompt itself to be part of the history for the AI
-    const historyForSummarization = chatHistory.filter(m => m.role === 'user' || (m.role === 'model' && m.proposedChanges));
+  const existingFile = files.find(f => f.path === summaryFilePath);
+  const oldContent = existingFile?.content ?? '';
 
-    const contents = [
-        {
-            role: 'user',
-            parts: [{ text: summarizationPrompt }]
-        }
-    ];
-
-    try {
-        const response = await callGeminiWithRetry<GenerateContentResponse>(() => 
-            ai.models.generateContent({
-                model: 'gemini-2.5-flash', // Use flash for speed on this task
-                contents,
-                config: {
-                  temperature: 0.2, // Set low temperature for factual, consistent summaries
-                }
-            })
-        );
-
-        const summary = response.text;
-        if (!summary) {
-            throw new Error("The AI returned an an empty summary.");
-        }
-        return summary.trim();
-    } catch (error) {
-        console.error("Error summarizing session:", error);
-        let detail = error instanceof Error ? error.message : 'Unknown error';
-        if (error instanceof Error && detail.toLowerCase().includes('quota')) {
-            if (detail.toLowerCase().includes('plan and billing')) {
-                detail = "You have exceeded your usage quota (e.g., daily limit). Please check your Google AI Platform plan and billing details. The quota typically resets at midnight PST.";
-            } else {
-                detail = "The request rate is too high (requests per minute). The app retried, but the server remained busy. Please wait a moment before trying again.";
-            }
-        }
-        // Re-throw with the more user-friendly message
-        throw new Error(`Failed to generate session summary: ${detail}`);
-    }
+  return {
+    filePath: summaryFilePath,
+    oldContent: oldContent,
+    newContent: summaryContent,
+  };
 };

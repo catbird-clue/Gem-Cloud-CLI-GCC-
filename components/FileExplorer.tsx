@@ -1,22 +1,19 @@
 import React, { useRef, useMemo, useState } from 'react';
 import type { UploadedFile, FileTreeNode, TreeNodeValue, GeminiModel } from '../types';
-import { UploadIcon, FolderIcon, FileIcon, TrashIcon, MemoryIcon, DownloadIcon, EyeIcon, SaveIcon, SummaryIcon } from './Icons';
+import { UploadIcon, FolderIcon, FileIcon, TrashIcon, DownloadIcon, EyeIcon, SummaryIcon } from './Icons';
 
 interface FileExplorerProps {
   files: UploadedFile[];
   modifiedFiles: Record<string, number>;
   model: GeminiModel;
-  isSummarizing: boolean;
-  sessionSummary: string;
+  isLoading: boolean;
   onFileUpload: (files: FileList | null) => void;
   onClearFiles: () => void;
-  onOpenMemoryEditor: () => void;
-  onOpenSummaryViewer: () => void;
-  onSaveSessionSummary: () => void;
   onViewFile: (file: UploadedFile) => void;
   onViewDiff: (file: UploadedFile) => void;
   onAddChatMessage: (message: string) => void;
   onAcknowledgeFileChange: (filePath: string) => void;
+  onSummarizeSession: () => void;
 }
 
 interface FileTreeProps {
@@ -169,10 +166,9 @@ const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, onViewDiff,
 
 export const FileExplorer = (props: FileExplorerProps): React.ReactElement => {
   const { 
-    files, modifiedFiles, model, isSummarizing, sessionSummary, 
-    onFileUpload, onClearFiles, onOpenMemoryEditor, onOpenSummaryViewer, 
-    onSaveSessionSummary, onViewFile, onViewDiff, onAddChatMessage, 
-    onAcknowledgeFileChange 
+    files, modifiedFiles, model, isLoading,
+    onFileUpload, onClearFiles, onViewFile, onViewDiff, onAddChatMessage, 
+    onAcknowledgeFileChange, onSummarizeSession
   } = props;
   
   const inputRef = useRef<HTMLInputElement>(null);
@@ -226,7 +222,6 @@ export const FileExplorer = (props: FileExplorerProps): React.ReactElement => {
   };
 
   const hasFiles = files.length > 0;
-  const hasSummary = !!sessionSummary;
 
   return (
     <div 
@@ -240,30 +235,13 @@ export const FileExplorer = (props: FileExplorerProps): React.ReactElement => {
           <h2 className="text-xl font-semibold text-gray-200">File Explorer</h2>
           <div className="flex items-center space-x-1">
              <button
-              onClick={onSaveSessionSummary}
-              disabled={isSummarizing || !hasFiles}
+              onClick={onSummarizeSession}
+              disabled={isLoading || !hasFiles}
               className="p-2 text-gray-400 hover:text-indigo-400 hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title={isSummarizing ? "Summarizing session..." : "Save session summary"}
-              aria-label="Save session summary"
-            >
-              <SaveIcon className={`w-5 h-5 ${isSummarizing ? 'animate-pulse' : ''}`} />
-            </button>
-            <button
-              onClick={onOpenSummaryViewer}
-              disabled={!hasSummary}
-              className="p-2 text-gray-400 hover:text-indigo-400 hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title={hasSummary ? "View session summary" : "No session summary saved yet"}
-              aria-label="View session summary"
+              title={hasFiles ? "Generate a summary of the current chat session" : "Upload files to start a session"}
+              aria-label="Summarize session"
             >
               <SummaryIcon className="w-5 h-5" />
-            </button>
-            <button
-              onClick={onOpenMemoryEditor}
-              className="p-2 text-gray-400 hover:text-indigo-400 hover:bg-gray-700 rounded-md transition-colors"
-              title="Edit AI Memory (Global)"
-              aria-label="Edit AI Memory"
-            >
-              <MemoryIcon className="w-5 h-5" />
             </button>
             <button
               onClick={onClearFiles}
