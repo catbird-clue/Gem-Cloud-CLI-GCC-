@@ -316,10 +316,12 @@ Be thorough but not overly verbose. Use headings and bullet points for clarity.`
 
   const existingFile = files.find(f => f.path === summaryFilePath);
   const oldContent = existingFile?.content ?? '';
-
-  return {
+  
+  const change: ProposedChange = {
     filePath: summaryFilePath,
     oldContent: oldContent,
     newContent: summaryContent,
   };
+
+  return change;
 };

@@ -9,25 +9,21 @@ Welcome to Gemini Cloud CLI, a web-based interface designed for collaborative so
 ## Core Features
 
 *   **Project Upload:** Upload your entire project folder to provide the AI with full context of your codebase.
-*   **Interactive Chat:** Communicate with Gemini to ask questions, request code changes, or generate new features. You can attach files directly to a prompt for one-off questions, stop generation at any time, and see the AI's real-time "thoughts" as it works.
+*   **Interactive Chat:** Communicate with Gemini to ask questions, request code changes, or generate new features. You can attach files directly to a prompt for one-off questions and stop generation at any time.
 *   **File Management:** The AI can propose creating new files or modifying existing ones. You can review these changes in a user-friendly diff format and apply them with a single click.
-*   **Session Summary:** When your conversation gets long, you can use the **"Summarize Session"** button. The AI will generate a summary of the key points and propose it as a change to a file (`AI_Memory/session_summary.md`). Applying this change helps maintain context for long-running tasks.
 *   **Chat Export:** Save your entire conversation, including code changes, to a local Markdown file for your records.
 
 ---
 
-## Getting Started: The Step-by-Step Workflow
+## The Workflow: Maintaining Context Between Sessions
 
-1.  **Upload Project:** Click **"Upload Project Folder"** and select your project. The AI will analyze all files to understand the context.
-2.  **Assign a Task:** Give the AI a complex task, like "Implement a new login form" or "Refactor the user service to use async/await".
-3.  **Review the Plan:** The AI will first respond with a numbered plan outlining the steps it will take. It will then execute **only the first step** and present the proposed file changes.
-4.  **Apply and Continue (The Core Loop):** This is the most important part of the workflow.
-    *   **a. Review:** Look at the proposed changes in the interactive panel below the AI's message.
-    *   **b. Apply:** If you are happy with the changes, click the **"Apply Changes"** button. This updates the project's state for the AI's next step.
-    *   **c. Confirm:** Reply to the AI with a confirmation like "continue", "next", "proceed", or "продолжай".
-5.  **Repeat:** The AI will proceed to the next step in its plan. Repeat the "Apply and Continue" loop until the task is complete.
-6.  **Download Your Files:** Once finished, modified files are highlighted in green in the File Explorer. Hover over them to download the updated versions.
-7.  **Export & Clear:** You can export the chat history using the export button or clear the session with the trash can icon to start fresh. Remember, clearing the session cannot be undone.
+This is a session-only tool, but you can easily carry your work across multiple sessions using the summary feature.
+
+1.  **Work in a Session:** Upload your project and work with the AI as usual.
+2.  **Generate Summary:** At the end of a session, click the **"Summarize Session"** button (the document icon in the File Explorer).
+3.  **Review and Save:** The AI will generate a summary of your conversation and propose saving it to a file (usually `AI_Memory/session_summary.md`). This will appear as a new message in the chat. Review the proposed change and click **"Apply Changes"** to save it to your project.
+4.  **Download Your Work:** Download the new summary file and any other modified files from the File Explorer.
+5.  **Continue Later:** To continue your work in a new session, simply upload your project folder again, making sure it includes the `AI_Memory/session_summary.md` file. The AI will read the summary and be fully up-to-date on your project's history and goals.
 
 ---
 

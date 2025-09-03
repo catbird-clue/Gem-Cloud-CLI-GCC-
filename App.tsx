@@ -263,7 +263,7 @@ export default function App(): React.ReactElement {
     stopGenerationRef.current = false;
 
     try {
-      const summaryChange = await summarizeChatResponse(chatHistory, files);
+      const change = await summarizeChatResponse(chatHistory, files);
 
       if (stopGenerationRef.current) {
         throw new Error("Generation stopped by user");
@@ -271,8 +271,8 @@ export default function App(): React.ReactElement {
 
       setChatHistory(prev => [...prev, {
         role: 'model',
-        content: 'I have generated a summary of our conversation. Please review and apply the changes to save it for future reference.',
-        proposedChanges: [summaryChange]
+        content: "I've generated a summary of our session. Please review the proposed change below to save it.",
+        proposedChanges: [change]
       }]);
 
     } catch (err) {
