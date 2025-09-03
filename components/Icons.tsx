@@ -53,15 +53,11 @@ export const TrashIcon = ({ className }: IconProps): React.ReactElement => (
 );
 
 export const MemoryIcon = ({ className }: IconProps): React.ReactElement => (
-  <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-1.043 1.118-1.212.558-.17 1.148.09 1.483.562l.159.24a.87.87 0 001.246.398l.22-.12a1.06 1.06 0 011.302.48l.159.24a.87.87 0 001.246.398l.22-.12a1.06 1.06 0 011.302.48l.159.24a.87.87 0 001.246.398l.22-.12a1.06 1.06 0 011.302.48l.159.24a.87.87 0 001.246.398l.22-.12a1.06 1.06 0 011.302.48" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M14.25 12a2.25 2.25 0 00-2.25-2.25c-1.334 0-2.433 1.25-2.25 2.5 1.191.04 1.45.143 1.875.333a2.492 2.492 0 001.5.333c.313 0 .522-.053.625-.111" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M3.846 4.41a1.06 1.06 0 011.302.48l.159.24a.87.87 0 001.246.398l.22-.12a1.06 1.06 0 011.302.48l.159.24a.87.87 0 001.246.398l.22-.12a1.06 1.06 0 011.302.48l.159.24a.87.87 0 001.246.398l.22-.12a1.06 1.06 0 011.302.48l.159.24a.87.87 0 001.246.398" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M19.154 8.59a1.06 1.06 0 01-1.302.48l-.22-.12a.87.87 0 00-1.246.398l-.159.24a1.06 1.06 0 01-1.302.48l-.22-.12a.87.87 0 00-1.246.398l-.159.24a1.06 1.06 0 01-1.302.48l-.22-.12a.87.87 0 00-1.246.398l-.159.24a1.06 1.06 0 01-1.302.48" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M4.846 13.41a1.06 1.06 0 011.302.48l.159.24a.87.87 0 001.246.398l.22-.12a1.06 1.06 0 011.302.48l.159.24a.87.87 0 001.246.398l.22-.12a1.06 1.06 0 011.302.48l.159.24a.87.87 0 001.246.398l.22-.12a1.06 1.06 0 011.302.48l.159.24a.87.87 0 001.246.398" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M3 12a9 9 0 1118 0 9 9 0 01-18 0z" />
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5a3.75 3.75 0 00-3.75 3.75v.563a3.75 3.75 0 01-2.28 3.481V17.25a3.75 3.75 0 003.75 3.75h5.25a3.75 3.75 0 003.75-3.75V12.294a3.75 3.75 0 01-2.28-3.481v-.563A3.75 3.75 0 0012 4.5zM12 11.25a2.25 2.25 0 00-2.25 2.25v.563a2.25 2.25 0 01-1.5 2.12v1.5a.75.75 0 00.75.75h5.25a.75.75 0 00.75-.75v-1.5a2.25 2.25 0 01-1.5-2.12v-.563a2.25 2.25 0 00-2.25-2.25z" />
   </svg>
 );
+
 
 export const ExportIcon = ({ className }: IconProps): React.ReactElement => (
   <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">

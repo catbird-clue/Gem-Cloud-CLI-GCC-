@@ -1,8 +1,9 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { FileExplorer } from './components/FileExplorer';
 import { ChatInterface } from './components/ChatInterface';
 import { FileViewer } from './components/FileViewer';
 import { FileDiffViewer } from './components/FileDiffViewer';
+import { MemoryEditor } from './components/MemoryEditor';
 import type { UploadedFile, ChatMessage, ProposedChange, GeminiModel } from './types';
 import { AVAILABLE_MODELS } from './types';
 import { streamChatResponse, summarizeChatResponse } from './services/geminiService';
@@ -10,6 +11,31 @@ import { extractFullContentFromChangeXml } from './utils/patchUtils';
 
 const MAX_HISTORY_LENGTH = 20; // Keep the last 20 file states
 const CONTEXT_CHAR_LIMIT = 25000; // Character limit for chat history before pruning
+const MEMORY_FILE_PATH = 'AI_Memory/long_term_memory.md';
+const SUMMARY_FILE_PATH = 'AI_Memory/session_summary.md';
+
+const initialMemoryContent = `# AI Long-Term Memory
+
+This file stores persistent instructions for the AI. Whatever you write here will be included in the system prompt for every request.
+
+## Example Rules:
+
+- Always use functional components in React.
+- Write all comments in English.
+- Prefer arrow functions over function declarations.
+- Never use default exports.
+`;
+
+const initialSummaryContent = `# Session Summary
+
+This file stores summaries of your chat sessions. Use the "Summarize Session" button in the File Explorer to generate and save a summary here. Keeping a summary helps the AI remember context between sessions.
+`;
+
+const initialFiles: UploadedFile[] = [
+  { path: MEMORY_FILE_PATH, content: initialMemoryContent },
+  { path: SUMMARY_FILE_PATH, content: initialSummaryContent },
+];
+
 
 /**
  * Prunes the chat history if it exceeds a character limit to prevent context overflow.
@@ -53,7 +79,7 @@ const pruneChatHistory = (history: ChatMessage[]): ChatMessage[] => {
 
 
 export default function App(): React.ReactElement {
-  const [files, setFiles] = useState<UploadedFile[]>([]);
+  const [files, setFiles] = useState<UploadedFile[]>(initialFiles);
   const [modifiedFiles, setModifiedFiles] = useState<Record<string, number>>({});
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [fileHistory, setFileHistory] = useState<UploadedFile[][]>([]); // Holds previous states of the 'files' array
@@ -61,12 +87,19 @@ export default function App(): React.ReactElement {
   const [model, setModel] = useState<GeminiModel>(AVAILABLE_MODELS[0]);
   const [viewingFile, setViewingFile] = useState<UploadedFile | null>(null);
   const [viewingDiff, setViewingDiff] = useState<{ oldFile: UploadedFile; newFile: UploadedFile } | null>(null);
+  const [isMemoryEditorOpen, setIsMemoryEditorOpen] = useState(false);
   
   const stopGenerationRef = useRef(false);
+
+  // Derive long-term memory directly from the project file content.
+  // This ensures that the memory is always in sync with the project state.
+  const longTermMemory = useMemo(() => {
+    return files.find(f => f.path === MEMORY_FILE_PATH)?.content ?? '';
+  }, [files]);
   
   // Effect to load initial welcome message
   useEffect(() => {
-    const welcomeMessage = `Welcome to Gemini Cloud CLI! Upload your project folder using the button on the left to get started. Note: This is a session-only tool. Refreshing the page will clear all files and chat history.`;
+    const welcomeMessage = `Welcome to Gemini Cloud CLI! I've pre-loaded a folder \`AI_Memory/\` which contains my long-term memory and a place to save session summaries. Upload your project folder using the button on the left to get started.`;
      setChatHistory([{
         role: 'model',
         content: welcomeMessage
@@ -74,15 +107,16 @@ export default function App(): React.ReactElement {
   }, []);
 
   const handleClearFiles = useCallback(() => {
-    if (files.length === 0) return;
+    // Only allow clearing if there are user-uploaded files
+    if (files.length <= initialFiles.length) return;
     
-    if (window.confirm('Are you sure you want to clear all files and start a new session? This action cannot be undone.')) {
-        setFiles([]);
+    if (window.confirm('Are you sure you want to clear your uploaded project files and start a new session? This action cannot be undone.')) {
+        setFiles(initialFiles);
         setModifiedFiles({});
         setFileHistory([]);
         setChatHistory([{
             role: 'model',
-            content: `Project files have been cleared. You are now in a new, empty session.`
+            content: `Project files have been cleared. Your session has been reset.`
         }]);
     }
   }, [files.length]);
@@ -106,16 +140,25 @@ export default function App(): React.ReactElement {
 
     try {
       const newFiles = await Promise.all(filePromises);
-      const isFirstUpload = files.length === 0;
+      const isFirstUserUpload = files.length <= initialFiles.length && files.every(f => f.path.startsWith('AI_Memory/'));
 
       if (files.length > 0) {
         setFileHistory(prev => [files, ...prev].slice(0, MAX_HISTORY_LENGTH));
       }
       
+      let finalMessage = '';
+
       setFiles(currentFiles => {
         const fileMap = new Map(currentFiles.map(f => [f.path, f]));
         newFiles.forEach(file => fileMap.set(file.path, file));
-        return Array.from(fileMap.values());
+        
+        if (isFirstUserUpload) {
+            finalMessage = `Successfully uploaded ${newFiles.length} files. You can now ask me questions about your code.`;
+        } else {
+             finalMessage = `Successfully added or updated ${newFiles.length} files.`;
+        }
+        
+        return Array.from(fileMap.values()).sort((a, b) => a.path.localeCompare(b.path));
       });
 
       setModifiedFiles(currentModified => {
@@ -125,14 +168,10 @@ export default function App(): React.ReactElement {
         });
         return updatedModified;
       });
-      
-      const message = isFirstUpload
-        ? `Successfully uploaded ${newFiles.length} files. You can now ask me questions about your code.`
-        : `Successfully added or updated ${newFiles.length} files.`;
         
       setChatHistory(prev => [...prev, {
         role: 'model',
-        content: message
+        content: finalMessage
       }]);
       
     } catch (err) {
@@ -289,6 +328,30 @@ export default function App(): React.ReactElement {
     }
   }, [isLoading, chatHistory, files]);
 
+  const handleSaveMemory = useCallback((memory: string) => {
+    setIsMemoryEditorOpen(false);
+    
+    const oldFile = files.find(f => f.path === MEMORY_FILE_PATH);
+    const oldContent = oldFile?.content ?? '';
+    
+    // Don't propose a change if the content is identical.
+    if (memory === oldContent) {
+      return;
+    }
+    
+    const change: ProposedChange = {
+      filePath: MEMORY_FILE_PATH,
+      oldContent,
+      newContent: memory,
+    };
+    
+    setChatHistory(prev => [...prev, {
+      role: 'model',
+      content: "I've generated a proposal to update my long-term memory. Please review and apply the change below to save it.",
+      proposedChanges: [change]
+    }]);
+  }, [files]);
+
   const handlePromptSubmit = useCallback(async (prompt: string, stagedFiles: File[]) => {
     if (isLoading) return;
 
@@ -316,7 +379,7 @@ export default function App(): React.ReactElement {
     
     try {
       // --- 2. Accumulate full response in the background ---
-      const responseStream = streamChatResponse(prompt, historyForApi, files, fileHistory, model, stagedFiles);
+      const responseStream = streamChatResponse(prompt, historyForApi, files, fileHistory, model, stagedFiles, longTermMemory);
       let fullModelResponse = '';
       for await (const chunk of responseStream) {
         if (stopGenerationRef.current) {
@@ -413,7 +476,7 @@ export default function App(): React.ReactElement {
       setIsLoading(false);
       stopGenerationRef.current = false;
     }
-  }, [isLoading, files, model, chatHistory, fileHistory]);
+  }, [isLoading, files, model, chatHistory, fileHistory, longTermMemory]);
 
   return (
     <main className="flex h-screen w-screen bg-gray-900 text-gray-200">
@@ -429,6 +492,7 @@ export default function App(): React.ReactElement {
         onAddChatMessage={handleAddChatMessage}
         onAcknowledgeFileChange={handleAcknowledgeFileChange}
         onSummarizeSession={handleSummarizeSession}
+        onEditMemory={() => setIsMemoryEditorOpen(true)}
       />
       <div className="flex-1 flex flex-col bg-gray-800/50">
         <ChatInterface 
@@ -447,6 +511,12 @@ export default function App(): React.ReactElement {
         diff={viewingDiff}
         onClose={() => setViewingDiff(null)}
         onRevert={handleRevertFile}
+      />
+      <MemoryEditor
+        isOpen={isMemoryEditorOpen}
+        onClose={() => setIsMemoryEditorOpen(false)}
+        onSave={handleSaveMemory}
+        memory={longTermMemory}
       />
     </main>
   );

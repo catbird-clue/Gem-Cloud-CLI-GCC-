@@ -1,6 +1,6 @@
 import React, { useRef, useMemo, useState } from 'react';
 import type { UploadedFile, FileTreeNode, TreeNodeValue, GeminiModel } from '../types';
-import { UploadIcon, FolderIcon, FileIcon, TrashIcon, DownloadIcon, EyeIcon, SummaryIcon } from './Icons';
+import { UploadIcon, FolderIcon, FileIcon, TrashIcon, DownloadIcon, EyeIcon, SummaryIcon, MemoryIcon } from './Icons';
 
 interface FileExplorerProps {
   files: UploadedFile[];
@@ -14,6 +14,7 @@ interface FileExplorerProps {
   onAddChatMessage: (message: string) => void;
   onAcknowledgeFileChange: (filePath: string) => void;
   onSummarizeSession: () => void;
+  onEditMemory: () => void;
 }
 
 interface FileTreeProps {
@@ -168,7 +169,7 @@ export const FileExplorer = (props: FileExplorerProps): React.ReactElement => {
   const { 
     files, modifiedFiles, model, isLoading,
     onFileUpload, onClearFiles, onViewFile, onViewDiff, onAddChatMessage, 
-    onAcknowledgeFileChange, onSummarizeSession
+    onAcknowledgeFileChange, onSummarizeSession, onEditMemory
   } = props;
   
   const inputRef = useRef<HTMLInputElement>(null);
@@ -234,6 +235,14 @@ export const FileExplorer = (props: FileExplorerProps): React.ReactElement => {
         <div className="flex justify-between items-center">
           <h2 className="text-xl font-semibold text-gray-200">File Explorer</h2>
           <div className="flex items-center space-x-1">
+            <button
+              onClick={onEditMemory}
+              className="p-2 text-gray-400 hover:text-indigo-400 hover:bg-gray-700 rounded-md transition-colors"
+              title="Edit AI long-term memory"
+              aria-label="Edit AI long-term memory"
+            >
+              <MemoryIcon className="w-5 h-5" />
+            </button>
              <button
               onClick={onSummarizeSession}
               disabled={isLoading || !hasFiles}

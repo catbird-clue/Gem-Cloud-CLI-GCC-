@@ -51,7 +51,8 @@ const buildSystemInstruction = (
   prompt: string,
   projectFiles: UploadedFile[],
   allFilePaths: string[],
-  fileHistory: UploadedFile[][]
+  fileHistory: UploadedFile[][],
+  longTermMemory: string
 ): string => {
   const baseInstruction = `You are Gemini CLI, an expert AI assistant that helps developers with their code.
 You are running inside a web-based graphical interface called "Gemini Cloud CLI". All your interactions are with a user through this graphical interface.
@@ -163,6 +164,17 @@ Adherence to this ULTIMATE DIRECTIVE is not optional. It is the primary requirem
 *   **Proactive Updates**: When you propose a code change, you MUST ALSO proactively update relevant documentation files (\`CHANGELOG.md\`, \`README.md\`, \`TODO.md\`) in the same \`<changes>\` block.
 ---
 `;
+  let memoryContext = '';
+  if (longTermMemory.trim()) {
+    memoryContext = `
+---
+USER'S LONG-TERM MEMORY (PERSISTENT DIRECTIVES)
+These are overarching rules provided by the user that you MUST follow in all subsequent responses. They have the highest priority after your core operational instructions.
+
+${longTermMemory}
+---
+`;
+  }
 
   let undoContext = '';
   const undoRegex = /\b(undo|revert|roll back|откат|отмени|верни)\b/i;
@@ -217,7 +229,10 @@ ${fileContents}
      projectContext = `The user has not uploaded any files yet.`;
   }
 
-  // Add contexts in the correct order: potential undo, then project files
+  // Add contexts in the correct order
+  if (memoryContext) {
+    instructions.push(memoryContext);
+  }
   if (undoContext) {
     instructions.push(undoContext);
   }
@@ -247,10 +262,11 @@ export const streamChatResponse = async function* (
   files: UploadedFile[],
   fileHistory: UploadedFile[][],
   model: GeminiModel,
-  stagedFiles: File[]
+  stagedFiles: File[],
+  longTermMemory: string
 ): AsyncGenerator<string> {
     const allFilePaths = files.map(f => f.path);
-    const systemInstruction = buildSystemInstruction(prompt, files, allFilePaths, fileHistory);
+    const systemInstruction = buildSystemInstruction(prompt, files, allFilePaths, fileHistory, longTermMemory);
     
     // Use the explicit ModelContent[] type to ensure the array can hold mixed part types later.
     const contents: ModelContent[] = chatHistory.slice(0, -1).map(message => ({
