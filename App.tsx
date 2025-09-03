@@ -330,24 +330,24 @@ export default function App(): React.ReactElement {
       let proposedChanges: ProposedChange[] | undefined = undefined;
       let modelMessageError: string | undefined = undefined;
       
-      // New "Ironclad" parsing logic
-      const changeBlockMarker = '<changes>';
-      const changeBlockIndex = fullModelResponse.indexOf(changeBlockMarker);
-      
+      // "Ironclad" parsing logic using regex to robustly isolate the XML block.
+      const changeBlockRegex = /<changes>[\s\S]*?<\/changes>/;
+      const match = fullModelResponse.match(changeBlockRegex);
+
       let conversationalPart = fullModelResponse;
       let xmlPart = '';
 
-      if (changeBlockIndex !== -1) {
-        conversationalPart = fullModelResponse.substring(0, changeBlockIndex);
-        xmlPart = fullModelResponse.substring(changeBlockIndex);
+      if (match) {
+          xmlPart = match[0];
+          // Reconstruct conversational part by removing the XML block, preserving text before and after.
+          conversationalPart = fullModelResponse.replace(xmlPart, '').trim();
       }
       
       if (xmlPart) {
         try {
           const trimmedXml = xmlPart.trim();
-          if (!trimmedXml.startsWith('<changes') || !trimmedXml.endsWith('</changes>')) {
-            throw new Error("The AI's response included a malformed or incomplete file change block.");
-          }
+          // The regex ensures a well-formed block, so we can proceed directly to the parser,
+          // which is the definitive test for valid XML.
           
           const parser = new DOMParser();
           const xmlDoc = parser.parseFromString(trimmedXml, "application/xml");
