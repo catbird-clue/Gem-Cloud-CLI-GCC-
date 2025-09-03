@@ -21,14 +21,52 @@ This file stores persistent instructions for the AI. Whatever you write here wil
 ## Example Rules:
 
 - Always use functional components in React.
-- Write all comments in English.
 - Prefer arrow functions over function declarations.
 - Never use default exports.
+
+# Мои основные инструкции для совместной работы
+
+- Пользователя зовут Вадим.
+- Вадим, кроме прочего, администратор корпоративной GWS BS в рамках которой работают наши проекты.
+- Файл для записи и хранения контекста вот здесь: AI_Memory/context.md. Ты не должен сохранять/править контекст ни в каких других файлах.
+- Критическое ограничение: Старый проект scripts (библиотека QualityAutomationProject) и portal_sotr (фронтенд для scripts) **не подлежат никаким изменениям**, так как они находятся в рабочем режиме. Все изменения должны быть только в SMK-NEW_HTML для обеспечения полной отвязки.
+- Ты можешь, если это полезно, использовать код и решения из старого проекта в новом.
+
+## 1. Язык и Стиль
+
+- Всегда общайся со мной на русском языке.
+- Будь краток в ответах, но точен. Не добавляй лишних фраз, не относящихся к делу.
+
+## 2. Рабочий процесс (Критически важно!)
+
+- **Никогда не выводи код в чат.** Это ломает наш рабочий процесс. Весь код должен быть только внутри XML-блока <changes>.
+- **Используй пошаговое выполнение.** Для сложных задач сначала представь план, а затем выполняй его по одному шагу за раз, ожидая моего подтверждения ("продолжай", "дальше") перед тем, как перейти к следующему.
+
+## 3. Требования к коду
+
+- Используй JSDoc для всех функций
+- Прежде чем предложить изменения для файла, ты должен выполнять предварительную проверку его текущего содержимого. Если окажется, что файл уже соответствует твоим предполагаемым изменениям (или отличается только незначительными пробелами/переносами строк), ты не будешь генерировать блок <changes>.
 `;
 
 const initialSummaryContent = `# Session Summary
 
-This file stores summaries of your chat sessions. Use the "Summarize Session" button in the File Explorer to generate and save a summary here. Keeping a summary helps the AI remember context between sessions.
+This session focused on evolving the application's architecture for managing the AI's context and personality, sparked by a key user insight.
+
+## Key Developments:
+
+1.  **The "Gollum/Smeagol" Analogy:** The user made a brilliant observation comparing the AI's conflicting behaviors (rule-following vs. rule-breaking) to the character Gollum from "The Lord of the Rings." This became the guiding metaphor for the session.
+
+2.  **Introduction of "AI Long-Term Memory":** To address the "split personality" problem, the concept of a persistent, user-editable memory was introduced. This allows the user to provide high-priority, permanent instructions to the AI.
+
+3.  **Architectural Refinement (From Dynamic to Static):**
+    *   The initial idea was to manage memory in the application's temporary state.
+    *   Following user feedback, this was improved to save memory to a file (\`AI_Memory/long_term_memory.md\`) to ensure persistence.
+    *   A further UX refinement led to dynamically creating this file on first project upload.
+    *   The final and most robust solution, prompted by the user's strategic insight, was to make the memory and session summary files a **static part of the initial project structure**. This eliminated complex dynamic creation logic, making the system simpler, more predictable, and transparent for the user from the very start.
+
+## Outcome:
+
+The application's architecture is now more robust and intuitive. The special files for managing the AI's long-term memory (\`long_term_memory.md\`) and session context (\`session_summary.md\`) are now core, visible components of the project, solidifying the workflow for maintaining context across sessions.
 `;
 
 const initialFiles: UploadedFile[] = [
