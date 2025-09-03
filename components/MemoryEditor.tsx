@@ -32,8 +32,8 @@ export function MemoryEditor({ isOpen, onClose, onSave, memory }: MemoryEditorPr
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-4 border-b border-gray-700">
-          <h2 className="text-xl font-semibold text-gray-100">AI Long-Term Memory</h2>
-          <p className="text-sm text-gray-400 mt-1">Provide persistent instructions and context for the AI.</p>
+          <h2 className="text-xl font-semibold text-gray-100">Memory</h2>
+          <p className="text-sm text-gray-400 mt-1">Provide persistent instructions for the AI. This content is included with every prompt.</p>
         </div>
         <div className="flex-1 p-4 overflow-y-auto">
           <textarea

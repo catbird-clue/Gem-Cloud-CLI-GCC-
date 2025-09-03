@@ -6,73 +6,12 @@ import { FileDiffViewer } from './components/FileDiffViewer';
 import { MemoryEditor } from './components/MemoryEditor';
 import type { UploadedFile, ChatMessage, ProposedChange, GeminiModel } from './types';
 import { AVAILABLE_MODELS } from './types';
-import { streamChatResponse, summarizeChatResponse } from './services/geminiService';
+import { streamChatResponse, generateContextResponse } from './services/geminiService';
 import { extractFullContentFromChangeXml } from './utils/patchUtils';
 
 const MAX_HISTORY_LENGTH = 20; // Keep the last 20 file states
 const CONTEXT_CHAR_LIMIT = 25000; // Character limit for chat history before pruning
 const MEMORY_FILE_PATH = 'AI_Memory/long_term_memory.md';
-const SUMMARY_FILE_PATH = 'AI_Memory/session_summary.md';
-
-const initialMemoryContent = `# AI Long-Term Memory
-
-This file stores persistent instructions for the AI. Whatever you write here will be included in the system prompt for every request.
-
-## Example Rules:
-
-- Always use functional components in React.
-- Prefer arrow functions over function declarations.
-- Never use default exports.
-
-# Мои основные инструкции для совместной работы
-
-- Пользователя зовут Вадим.
-- Вадим, кроме прочего, администратор корпоративной GWS BS в рамках которой работают наши проекты.
-- Файл для записи и хранения контекста вот здесь: AI_Memory/context.md. Ты не должен сохранять/править контекст ни в каких других файлах.
-- Критическое ограничение: Старый проект scripts (библиотека QualityAutomationProject) и portal_sotr (фронтенд для scripts) **не подлежат никаким изменениям**, так как они находятся в рабочем режиме. Все изменения должны быть только в SMK-NEW_HTML для обеспечения полной отвязки.
-- Ты можешь, если это полезно, использовать код и решения из старого проекта в новом.
-
-## 1. Язык и Стиль
-
-- Всегда общайся со мной на русском языке.
-- Будь краток в ответах, но точен. Не добавляй лишних фраз, не относящихся к делу.
-
-## 2. Рабочий процесс (Критически важно!)
-
-- **Никогда не выводи код в чат.** Это ломает наш рабочий процесс. Весь код должен быть только внутри XML-блока <changes>.
-- **Используй пошаговое выполнение.** Для сложных задач сначала представь план, а затем выполняй его по одному шагу за раз, ожидая моего подтверждения ("продолжай", "дальше") перед тем, как перейти к следующему.
-
-## 3. Требования к коду
-
-- Используй JSDoc для всех функций
-- Прежде чем предложить изменения для файла, ты должен выполнять предварительную проверку его текущего содержимого. Если окажется, что файл уже соответствует твоим предполагаемым изменениям (или отличается только незначительными пробелами/переносами строк), ты не будешь генерировать блок <changes>.
-`;
-
-const initialSummaryContent = `# Session Summary
-
-This session focused on evolving the application's architecture for managing the AI's context and personality, sparked by a key user insight.
-
-## Key Developments:
-
-1.  **The "Gollum/Smeagol" Analogy:** The user made a brilliant observation comparing the AI's conflicting behaviors (rule-following vs. rule-breaking) to the character Gollum from "The Lord of the Rings." This became the guiding metaphor for the session.
-
-2.  **Introduction of "AI Long-Term Memory":** To address the "split personality" problem, the concept of a persistent, user-editable memory was introduced. This allows the user to provide high-priority, permanent instructions to the AI.
-
-3.  **Architectural Refinement (From Dynamic to Static):**
-    *   The initial idea was to manage memory in the application's temporary state.
-    *   Following user feedback, this was improved to save memory to a file (\`AI_Memory/long_term_memory.md\`) to ensure persistence.
-    *   A further UX refinement led to dynamically creating this file on first project upload.
-    *   The final and most robust solution, prompted by the user's strategic insight, was to make the memory and session summary files a **static part of the initial project structure**. This eliminated complex dynamic creation logic, making the system simpler, more predictable, and transparent for the user from the very start.
-
-## Outcome:
-
-The application's architecture is now more robust and intuitive. The special files for managing the AI's long-term memory (\`long_term_memory.md\`) and session context (\`session_summary.md\`) are now core, visible components of the project, solidifying the workflow for maintaining context across sessions.
-`;
-
-const initialFiles: UploadedFile[] = [
-  { path: MEMORY_FILE_PATH, content: initialMemoryContent },
-  { path: SUMMARY_FILE_PATH, content: initialSummaryContent },
-];
 
 
 /**
@@ -117,7 +56,7 @@ const pruneChatHistory = (history: ChatMessage[]): ChatMessage[] => {
 
 
 export default function App(): React.ReactElement {
-  const [files, setFiles] = useState<UploadedFile[]>(initialFiles);
+  const [files, setFiles] = useState<UploadedFile[]>([]);
   const [modifiedFiles, setModifiedFiles] = useState<Record<string, number>>({});
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [fileHistory, setFileHistory] = useState<UploadedFile[][]>([]); // Holds previous states of the 'files' array
@@ -135,29 +74,61 @@ export default function App(): React.ReactElement {
     return files.find(f => f.path === MEMORY_FILE_PATH)?.content ?? '';
   }, [files]);
   
-  // Effect to load initial welcome message
+  // Effect to load initial memory files and set a welcome message.
   useEffect(() => {
-    const welcomeMessage = `Welcome to Gemini Cloud CLI! I've pre-loaded a folder \`AI_Memory/\` which contains my long-term memory and a place to save session summaries. Upload your project folder using the button on the left to get started.`;
-     setChatHistory([{
-        role: 'model',
-        content: welcomeMessage
-      }]);
-  }, []);
+    const loadInitialFiles = async () => {
+      setIsLoading(true);
+      try {
+        const memoryFilePaths = [
+          'AI_Memory/long_term_memory.md',
+          'AI_Memory/session_summary.md'
+        ];
 
-  const handleClearFiles = useCallback(() => {
-    // Only allow clearing if there are user-uploaded files
-    if (files.length <= initialFiles.length) return;
-    
-    if (window.confirm('Are you sure you want to clear your uploaded project files and start a new session? This action cannot be undone.')) {
-        setFiles(initialFiles);
-        setModifiedFiles({});
-        setFileHistory([]);
+        const filePromises = memoryFilePaths.map(async (path) => {
+          const response = await fetch(path);
+          if (!response.ok) {
+            // It's okay if files don't exist, we'll just start without them.
+            if (response.status === 404) {
+              return null;
+            }
+            throw new Error(`Failed to fetch ${path}: ${response.statusText}`);
+          }
+          const content = await response.text();
+          return { path, content };
+        });
+
+        const initialMemoryFiles = (await Promise.all(filePromises)).filter((file): file is UploadedFile => file !== null);
+        
+        setFiles(initialMemoryFiles);
+
+        const loadedFilesCount = initialMemoryFiles.length;
+        let welcomeMessage = '';
+
+        if(loadedFilesCount > 0) {
+            welcomeMessage = `Welcome to Gemini Cloud CLI! I have loaded ${loadedFilesCount} file(s) from your project (Memory and/or Context). You can now upload your project folder to begin.`;
+        } else {
+            welcomeMessage = `Welcome to Gemini Cloud CLI! No Memory or Context files were found. Upload your project folder using the button on the left to get started.`;
+        }
+
         setChatHistory([{
-            role: 'model',
-            content: `Project files have been cleared. Your session has been reset.`
+          role: 'model',
+          content: welcomeMessage
         }]);
-    }
-  }, [files.length]);
+
+      } catch (error) {
+        console.error("Failed to load initial files:", error);
+        setChatHistory([{
+          role: 'model',
+          error: `Failed to load initial Memory/Context files. Please ensure they exist and the application has permission to access them. You can still upload your project folder to begin.`,
+          content: ''
+        }]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadInitialFiles();
+  }, []); // Empty dependency array ensures this runs only once on mount
   
   const handleFileUpload = useCallback(async (uploadedFiles: FileList | null) => {
     if (!uploadedFiles || uploadedFiles.length === 0) return;
@@ -178,7 +149,7 @@ export default function App(): React.ReactElement {
 
     try {
       const newFiles = await Promise.all(filePromises);
-      const isFirstUserUpload = files.length <= initialFiles.length && files.every(f => f.path.startsWith('AI_Memory/'));
+      const isFirstUserUpload = files.length === 0;
 
       if (files.length > 0) {
         setFileHistory(prev => [files, ...prev].slice(0, MAX_HISTORY_LENGTH));
@@ -294,42 +265,50 @@ export default function App(): React.ReactElement {
     }
   }, [fileHistory]);
   
-  const handleRevertFile = useCallback((filePath: string) => {
-    const fileToRevert = viewingDiff?.oldFile;
-    if (!fileToRevert) return;
-    
-    setFileHistory(prev => [files, ...prev].slice(0, MAX_HISTORY_LENGTH));
-
-    setFiles(currentFiles => {
-        const fileIndex = currentFiles.findIndex(f => f.path === filePath);
-        if (fileIndex !== -1) {
-            const updatedFiles = [...currentFiles];
-            updatedFiles[fileIndex] = fileToRevert;
-            return updatedFiles;
-        }
-        return currentFiles; // Should not happen if we are reverting
-    });
-
-    // We don't increment the modified counter on revert, we can just remove it or leave it.
-    // Let's remove it to signify it's back to a "saved" state from history.
-    setModifiedFiles(currentModified => {
-        const updatedModified = { ...currentModified };
-        delete updatedModified[filePath];
-        return updatedModified;
-    });
-
-    setViewingDiff(null);
-    setChatHistory(prev => [...prev, {
-        role: 'model',
-        content: `Reverted changes for \`${filePath}\`.`
-    }]);
-  }, [files, viewingDiff]);
-
   const handleAddChatMessage = useCallback((content: string) => {
     setChatHistory(prev => [...prev, { role: 'model', content }]);
   }, []);
 
-  const handleSummarizeSession = useCallback(async () => {
+  const handleRevertFile = useCallback((fileToRevert: UploadedFile) => {
+    if (fileHistory.length === 0) {
+        setChatHistory(prev => [...prev, {
+            role: 'model',
+            content: `Cannot revert "${fileToRevert.path}" as no file history exists.`
+        }]);
+        return;
+    }
+
+    const previousState = fileHistory[0];
+    const oldFile = previousState.find(f => f.path === fileToRevert.path);
+    
+    // If oldFile is undefined, it means the file was created in the current state. Reverting means deleting it.
+    const oldContent = oldFile ? oldFile.content : '';
+
+    if (oldFile && oldContent === fileToRevert.content) {
+      setChatHistory(prev => [...prev, {
+        role: 'model',
+        content: `No changes to revert for "${fileToRevert.path}".`
+      }]);
+      return;
+    }
+
+    const change: ProposedChange = {
+      filePath: fileToRevert.path,
+      oldContent: fileToRevert.content, // Current content is the "old" for the diff
+      newContent: oldContent,          // Previous content is the "new" for the revert
+    };
+
+    setChatHistory(prev => [...prev, {
+      role: 'model',
+      content: `I've created a proposal to revert the changes for "${fileToRevert.path}". Please review and apply the change below to restore the previous version.`,
+      proposedChanges: [change]
+    }]);
+
+    // Close the diff viewer after initiating revert
+    setViewingDiff(null);
+  }, [fileHistory]);
+
+  const handleGenerateContext = useCallback(async () => {
     if (isLoading || chatHistory.length < 2) {
       const message = chatHistory.length < 2 ? "Not enough conversation to summarize." : "Please wait for the current task to complete.";
       setChatHistory(prev => [...prev, {role: 'model', content: '', warning: message }]);
@@ -340,7 +319,7 @@ export default function App(): React.ReactElement {
     stopGenerationRef.current = false;
 
     try {
-      const change = await summarizeChatResponse(chatHistory, files);
+      const change = await generateContextResponse(chatHistory, files);
 
       if (stopGenerationRef.current) {
         throw new Error("Generation stopped by user");
@@ -348,17 +327,17 @@ export default function App(): React.ReactElement {
 
       setChatHistory(prev => [...prev, {
         role: 'model',
-        content: "I've generated a summary of our session. Please review the proposed change below to save it.",
+        content: "I've generated a summary of our session. Please review the proposed change below to save it to the Context file.",
         proposedChanges: [change]
       }]);
 
     } catch (err) {
-      console.error("Session summary error:", err);
+      console.error("Context summary error:", err);
       let detail = err instanceof Error ? err.message : "An unexpected error occurred.";
       if (detail.includes("stop")) {
-          detail = "Session summary generation was stopped."
+          detail = "Context summary generation was stopped."
       }
-      const errorMessage = `Failed to generate session summary: ${detail}`;
+      const errorMessage = `Failed to generate session Context: ${detail}`;
       setChatHistory(prev => [...prev, {role: 'model', content: '', error: errorMessage}]);
     } finally {
       setIsLoading(false);
@@ -385,7 +364,7 @@ export default function App(): React.ReactElement {
     
     setChatHistory(prev => [...prev, {
       role: 'model',
-      content: "I've generated a proposal to update my long-term memory. Please review and apply the change below to save it.",
+      content: "I've generated a proposal to update my Memory. Please review and apply the change below to save it.",
       proposedChanges: [change]
     }]);
   }, [files]);
@@ -432,7 +411,7 @@ export default function App(): React.ReactElement {
       let modelMessageError: string | undefined = undefined;
       
       // "Ironclad" parsing logic using regex to robustly isolate the XML block.
-      const changeBlockRegex = /<changes>[\s\S]*?<\/changes>/;
+      const changeBlockRegex = /<changes.*?>[\s\S]*?<\/changes>/;
       const match = fullModelResponse.match(changeBlockRegex);
 
       let conversationalPart = fullModelResponse;
@@ -446,9 +425,13 @@ export default function App(): React.ReactElement {
       
       if (xmlPart) {
         try {
-          const trimmedXml = xmlPart.trim();
-          // The regex ensures a well-formed block, so we can proceed directly to the parser,
-          // which is the definitive test for valid XML.
+          let trimmedXml = xmlPart.trim();
+          // The "root element not found" error can be caused by leading characters
+          // (like a BOM) that trim() doesn't remove. This slice is a safeguard.
+          const tagStartIndex = trimmedXml.indexOf('<');
+          if (tagStartIndex > 0) {
+            trimmedXml = trimmedXml.slice(tagStartIndex);
+          }
           
           const parser = new DOMParser();
           const xmlDoc = parser.parseFromString(trimmedXml, "application/xml");
@@ -524,12 +507,11 @@ export default function App(): React.ReactElement {
         model={model}
         isLoading={isLoading}
         onFileUpload={handleFileUpload} 
-        onClearFiles={handleClearFiles}
         onViewFile={handleViewFile}
         onViewDiff={handleViewDiff}
         onAddChatMessage={handleAddChatMessage}
         onAcknowledgeFileChange={handleAcknowledgeFileChange}
-        onSummarizeSession={handleSummarizeSession}
+        onGenerateContext={handleGenerateContext}
         onEditMemory={() => setIsMemoryEditorOpen(true)}
       />
       <div className="flex-1 flex flex-col bg-gray-800/50">

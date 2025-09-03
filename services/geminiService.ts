@@ -302,7 +302,7 @@ export const streamChatResponse = async function* (
     }
 };
 
-export const summarizeChatResponse = async (
+export const generateContextResponse = async (
   chatHistory: ChatMessage[],
   files: UploadedFile[]
 ): Promise<ProposedChange> => {

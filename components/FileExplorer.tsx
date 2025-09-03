@@ -8,12 +8,11 @@ interface FileExplorerProps {
   model: GeminiModel;
   isLoading: boolean;
   onFileUpload: (files: FileList | null) => void;
-  onClearFiles: () => void;
   onViewFile: (file: UploadedFile) => void;
   onViewDiff: (file: UploadedFile) => void;
   onAddChatMessage: (message: string) => void;
   onAcknowledgeFileChange: (filePath: string) => void;
-  onSummarizeSession: () => void;
+  onGenerateContext: () => void;
   onEditMemory: () => void;
 }
 
@@ -25,6 +24,9 @@ interface FileTreeProps {
   onViewDiff: (file: UploadedFile) => void;
   level?: number;
 }
+
+const MEMORY_FILE_PATH = 'AI_Memory/long_term_memory.md';
+const CONTEXT_FILE_PATH = 'AI_Memory/session_summary.md';
 
 /**
  * Builds a file system tree structure from a flat list of files.
@@ -102,6 +104,17 @@ const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, onViewDiff,
                 onViewFile(file);
               }
             };
+
+            let displayName = name;
+            let displayIcon = <FileIcon className="w-4 h-4 mr-2 flex-shrink-0" />;
+
+            if (file.path === MEMORY_FILE_PATH) {
+              displayName = 'Memory';
+              displayIcon = <MemoryIcon className="w-4 h-4 mr-2 flex-shrink-0 text-indigo-400" />;
+            } else if (file.path === CONTEXT_FILE_PATH) {
+              displayName = 'Context';
+              displayIcon = <SummaryIcon className="w-4 h-4 mr-2 flex-shrink-0 text-indigo-400" />;
+            }
             
             return (
               <div key={name} style={{ paddingLeft: `${level * 1}rem` }}>
@@ -111,12 +124,12 @@ const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, onViewDiff,
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleFileClick()}
-                  title={isModified ? `Click to review changes for ${name}` : `Click to view ${name}`}
+                  title={isModified ? `Click to review changes for ${displayName}` : `Click to view ${displayName}`}
                 >
                   <div className="flex items-center truncate">
-                    <FileIcon className="w-4 h-4 mr-2 flex-shrink-0" />
+                    {displayIcon}
                     <span className={`truncate ${isModified ? 'text-green-400 font-medium cursor-pointer' : 'text-gray-400 cursor-default'}`}>
-                      {name}
+                      {displayName}
                     </span>
                     {isModified && (
                       <span className="ml-2 bg-green-800/50 text-green-300 text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center flex-shrink-0">
@@ -128,8 +141,8 @@ const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, onViewDiff,
                     <button
                       onClick={(e) => { e.stopPropagation(); onViewFile(file); }}
                       className="p-1 text-gray-400 hover:text-indigo-400"
-                      title={`View current version of ${name}`}
-                      aria-label={`View current version of ${name}`}
+                      title={`View current version of ${displayName}`}
+                      aria-label={`View current version of ${displayName}`}
                     >
                       <EyeIcon className="w-4 h-4" />
                     </button>
@@ -137,8 +150,8 @@ const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, onViewDiff,
                        <button
                         onClick={(e) => { e.stopPropagation(); onDownloadFile(file); }}
                         className="p-1 text-gray-400 hover:text-indigo-400"
-                        title={`Download ${name}`}
-                        aria-label={`Download ${name}`}
+                        title={`Download ${displayName}`}
+                        aria-label={`Download ${displayName}`}
                       >
                         <DownloadIcon className="w-4 h-4" />
                       </button>
@@ -148,12 +161,13 @@ const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, onViewDiff,
               </div>
             )
           } else {
+             const folderDisplayName = name === 'AI_Memory' ? 'AI' : name;
              return (
               <div key={name} style={{ paddingLeft: `${level * 1}rem` }}>
                 <div>
                   <div className="flex items-center p-1 text-sm text-gray-300 font-medium hover:bg-gray-700 rounded-md cursor-default">
                     <FolderIcon className="w-4 h-4 mr-2 flex-shrink-0" />
-                    <span className="truncate">{name}</span>
+                    <span className="truncate">{folderDisplayName}</span>
                   </div>
                   {value.children && <FileTree node={value.children} level={level + 1} modifiedFiles={modifiedFiles} onDownloadFile={onDownloadFile} onViewFile={onViewFile} onViewDiff={onViewDiff} />}
                 </div>
@@ -168,8 +182,8 @@ const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, onViewDiff,
 export const FileExplorer = (props: FileExplorerProps): React.ReactElement => {
   const { 
     files, modifiedFiles, model, isLoading,
-    onFileUpload, onClearFiles, onViewFile, onViewDiff, onAddChatMessage, 
-    onAcknowledgeFileChange, onSummarizeSession, onEditMemory
+    onFileUpload, onViewFile, onViewDiff, onAddChatMessage, 
+    onAcknowledgeFileChange, onGenerateContext, onEditMemory
   } = props;
   
   const inputRef = useRef<HTMLInputElement>(null);
@@ -238,28 +252,19 @@ export const FileExplorer = (props: FileExplorerProps): React.ReactElement => {
             <button
               onClick={onEditMemory}
               className="p-2 text-gray-400 hover:text-indigo-400 hover:bg-gray-700 rounded-md transition-colors"
-              title="Edit AI long-term memory"
-              aria-label="Edit AI long-term memory"
+              title="Edit Memory"
+              aria-label="Edit Memory"
             >
               <MemoryIcon className="w-5 h-5" />
             </button>
              <button
-              onClick={onSummarizeSession}
+              onClick={onGenerateContext}
               disabled={isLoading || !hasFiles}
               className="p-2 text-gray-400 hover:text-indigo-400 hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title={hasFiles ? "Generate a summary of the current chat session" : "Upload files to start a session"}
-              aria-label="Summarize session"
+              title={hasFiles ? "Generate Context" : "Upload files to generate Context"}
+              aria-label="Generate Context"
             >
               <SummaryIcon className="w-5 h-5" />
-            </button>
-            <button
-              onClick={onClearFiles}
-              disabled={!hasFiles}
-              className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title={hasFiles ? "Clear all files and start new session" : "No files to clear"}
-              aria-label="Clear session"
-            >
-              <TrashIcon className="w-5 h-5" />
             </button>
           </div>
         </div>
