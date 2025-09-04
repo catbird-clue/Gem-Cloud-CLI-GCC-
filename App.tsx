@@ -7,7 +7,6 @@ import { MemoryEditor } from './components/MemoryEditor';
 import type { UploadedFile, ChatMessage, ProposedChange, GeminiModel } from './types';
 import { AVAILABLE_MODELS } from './types';
 import { streamChatResponse, generateContextResponse } from './services/geminiService';
-import { extractFullContentFromChangeXml } from './utils/patchUtils';
 
 const MAX_HISTORY_LENGTH = 20; // Keep the last 20 file states
 const CONTEXT_CHAR_LIMIT = 25000; // Character limit for chat history before pruning
@@ -52,6 +51,84 @@ const pruneChatHistory = (history: ChatMessage[]): ChatMessage[] => {
     }
     
     return keptMessages;
+};
+
+/**
+ * Parses an XML string from the AI for file changes.
+ * This parser is intentionally lenient and avoids using a strict DOMParser
+ * to handle potentially malformed or incomplete XML from the AI.
+ * It looks for <change> blocks and extracts file paths and content,
+ * with a fallback for unclosed CDATA sections.
+ * @param xmlString The XML string part of the AI's response.
+ * @param existingFiles The current list of files to determine old content for diffs.
+ * @returns An array of proposed file changes.
+ */
+const parseFileChangesFromXml = (xmlString: string, existingFiles: UploadedFile[]): ProposedChange[] => {
+    const changes: ProposedChange[] = [];
+    
+    // Using [\s\S]*? makes the match non-greedy.
+    const changeBlocks = xmlString.match(/<change file=".*?">[\s\S]*?<\/change>/g);
+
+    if (!changeBlocks) {
+        return [];
+    }
+
+    for (const block of changeBlocks) {
+        const filePathMatch = block.match(/<change file="(.*?)"/);
+        if (!filePathMatch?.[1]) {
+            console.warn("Skipping change block with no file path attribute.");
+            continue;
+        }
+        const filePath = filePathMatch[1];
+
+        const cdataStartTag = '<![CDATA[';
+        const cdataEndTag = ']]>';
+        const contentEndTag = '</content>';
+
+        const cdataStartIndex = block.indexOf(cdataStartTag);
+
+        if (cdataStartIndex === -1) {
+            // If no CDATA, it's likely a file deletion.
+            // Check for an empty content tag to be sure.
+            if (block.includes('<content/>') || block.includes('<content></content>') || block.includes('<content><![CDATA[]]></content>')) {
+                changes.push({
+                    filePath,
+                    oldContent: existingFiles.find(f => f.path === filePath)?.content ?? '',
+                    newContent: '',
+                });
+            } else {
+                console.warn(`No CDATA found in change for ${filePath}, and not a recognized empty tag. Skipping.`);
+            }
+            continue;
+        }
+
+        const contentStartIndex = cdataStartIndex + cdataStartTag.length;
+        
+        // Find where the content ends. First, look for a proper CDATA closing tag.
+        let contentEndIndex = block.indexOf(cdataEndTag, contentStartIndex);
+
+        // If the CDATA isn't closed properly, fall back to the end of the <content> tag.
+        if (contentEndIndex === -1) {
+            contentEndIndex = block.indexOf(contentEndTag, contentStartIndex);
+        }
+
+        if (contentEndIndex === -1) {
+            // This is a severely malformed block, with no closing tags for content.
+            console.warn(`Unrecoverable parse error for ${filePath}: No closing tag found for content. Skipping.`);
+            continue;
+        }
+
+        const newContent = block.substring(contentStartIndex, contentEndIndex);
+        const oldFile = existingFiles.find(f => f.path === filePath);
+
+        changes.push({
+            filePath,
+            oldContent: oldFile?.content ?? '',
+            newContent,
+        });
+    }
+
+    return changes;
 };
 
 
@@ -142,7 +219,7 @@ export default function App(): React.ReactElement {
           const content = e.target?.result as string;
           resolve({ path: file.webkitRelativePath || file.name, content });
         };
-        reader.onerror = (e) => reject(e);
+        reader.onerror = () => reject(reader.error || new Error(`Unknown error reading ${file.name}`));
         reader.readAsText(file);
       });
     });
@@ -185,7 +262,8 @@ export default function App(): React.ReactElement {
       
     } catch (err) {
       console.error("File reading error:", err);
-      const errorMessage = "Failed to read one or more files. Please ensure they are text-based files and try again.";
+      const detail = err instanceof Error ? err.message : String(err);
+      const errorMessage = `Failed to read one or more files. Details: ${detail}. Please ensure they are text-based and try again.`;
        setChatHistory(prev => [...prev, {role: 'model', content: '', error: errorMessage}]);
     } finally {
       setIsLoading(false);
@@ -410,7 +488,6 @@ export default function App(): React.ReactElement {
       let proposedChanges: ProposedChange[] | undefined = undefined;
       let modelMessageError: string | undefined = undefined;
       
-      // "Ironclad" parsing logic using regex to robustly isolate the XML block.
       const changeBlockRegex = /<changes.*?>[\s\S]*?<\/changes>/;
       const match = fullModelResponse.match(changeBlockRegex);
 
@@ -419,117 +496,105 @@ export default function App(): React.ReactElement {
 
       if (match) {
           xmlPart = match[0];
-          // Reconstruct conversational part by removing the XML block, preserving text before and after.
           conversationalPart = fullModelResponse.replace(xmlPart, '').trim();
       }
       
       if (xmlPart) {
         try {
-          let trimmedXml = xmlPart.trim();
-          // The "root element not found" error can be caused by leading characters
-          // (like a BOM) that trim() doesn't remove. This slice is a safeguard.
-          const tagStartIndex = trimmedXml.indexOf('<');
-          if (tagStartIndex > 0) {
-            trimmedXml = trimmedXml.slice(tagStartIndex);
-          }
-          
-          const parser = new DOMParser();
-          const xmlDoc = parser.parseFromString(trimmedXml, "application/xml");
-          const errorNode = xmlDoc.querySelector('parsererror');
-          if (errorNode) {
-            throw new Error(`XML parsing error: ${errorNode.textContent}`);
-          }
-          
-          const changeNodes = xmlDoc.getElementsByTagName('change');
-          const generatedChanges: ProposedChange[] = [];
-          
-          for (const changeNode of Array.from(changeNodes)) {
-            const filePath = changeNode.getAttribute('file');
-            if (!filePath) continue;
-            
-            const oldFile = files.find(f => f.path === filePath);
-            const oldContent = oldFile?.content ?? '';
-            
-            const newContent = extractFullContentFromChangeXml(changeNode.outerHTML);
-            
-            const change: ProposedChange = {
-                filePath,
-                oldContent,
-                newContent,
-            };
-            if (!(change.newContent === '' && !oldFile)) {
-                generatedChanges.push(change);
+            const parsedChanges = parseFileChangesFromXml(xmlPart, files);
+            if (parsedChanges.length > 0) {
+                proposedChanges = parsedChanges;
             }
-          }
-          
-          if (generatedChanges.length > 0) {
-              proposedChanges = generatedChanges;
-          }
-
         } catch (err) {
-          console.error("Failed to parse file changes:", err);
-          let errorMessage = "The AI proposed an invalid file change format.";
-          if (err instanceof Error) errorMessage += ` Details: ${err.message}`;
-          modelMessageError = errorMessage;
+            console.error("Failed to parse file changes:", err);
+            modelMessageError = `The AI proposed an invalid file change format. Details: ${err instanceof Error ? err.message : String(err)}`;
         }
       }
-      
-      // --- 4. Add the final, complete message to the chat history ---
-      const finalModelMessage: ChatMessage = {
-          role: 'model',
-          content: conversationalPart.trim(),
-          proposedChanges: proposedChanges,
-          error: modelMessageError,
+
+      // --- 4. Update state with the final message ---
+      const modelMessage: ChatMessage = {
+        role: 'model',
+        content: conversationalPart,
+        proposedChanges,
+        error: modelMessageError,
       };
-      setChatHistory(prev => [...prev, finalModelMessage]);
+      setChatHistory(prev => [...prev, modelMessage]);
 
     } catch (err) {
-      // --- 5. Handle API or other critical errors ---
-      console.error("Gemini API error:", err);
-      let detail = err instanceof Error ? err.message : "An unexpected error occurred.";
-      if (detail.toLowerCase().includes('quota')) {
-         detail = "You have exceeded your usage quota (e.g., daily limit). Please check your Google AI Platform plan and billing details.";
+      console.error("Chat generation error:", err);
+      let detail: string;
+
+      if (err instanceof Error) {
+        detail = err.message;
+      } else if (typeof err === 'object' && err !== null) {
+        // Handle specific Google AI error structure like: { error: { message: '...' } }
+        const errorObject = err as Record<string, any>;
+        if (errorObject.error && typeof errorObject.error === 'object' && errorObject.error.message) {
+            detail = String(errorObject.error.message);
+        } 
+        // Handle other common error structures like: { message: '...' }
+        else if (errorObject.message) {
+            detail = String(errorObject.message);
+        } 
+        // Fallback to stringifying the object
+        else {
+            try {
+                detail = JSON.stringify(err);
+            } catch {
+                detail = "An unknown error object was received.";
+            }
+        }
+      } else {
+        detail = String(err);
       }
-      const errorMessage = `Gemini API Error: ${detail}`;
+    
+      if (detail.includes("stop")) {
+        detail = "Generation was stopped."
+      }
+      // Network errors often manifest with status 0 or a "Failed to fetch" message.
+      else if (detail.includes('http status code: 0') || detail.toLowerCase().includes('failed to fetch')) {
+        detail = `A network error occurred. This could be due to a lost connection, a firewall, or a browser extension (like an ad-blocker) interfering with the request. Please check your network and browser settings.\n\nOriginal error: ${detail}`;
+      }
+      
+      const errorMessage = `An error occurred while generating a response: ${detail}`;
       setChatHistory(prev => [...prev, {role: 'model', content: '', error: errorMessage}]);
     } finally {
-      // --- 6. Cleanup ---
       setIsLoading(false);
       stopGenerationRef.current = false;
     }
-  }, [isLoading, files, model, chatHistory, fileHistory, longTermMemory]);
+  }, [isLoading, chatHistory, files, fileHistory, model, longTermMemory]);
 
   return (
-    <main className="flex h-screen w-screen bg-gray-900 text-gray-200">
-      <FileExplorer 
-        files={files}
-        modifiedFiles={modifiedFiles}
-        model={model}
-        isLoading={isLoading}
-        onFileUpload={handleFileUpload} 
-        onViewFile={handleViewFile}
-        onViewDiff={handleViewDiff}
-        onAddChatMessage={handleAddChatMessage}
-        onAcknowledgeFileChange={handleAcknowledgeFileChange}
-        onGenerateContext={handleGenerateContext}
-        onEditMemory={() => setIsMemoryEditorOpen(true)}
-      />
-      <div className="flex-1 flex flex-col bg-gray-800/50">
-        <ChatInterface 
-          chatHistory={chatHistory}
+    <div className="flex flex-col h-full bg-gray-900">
+      <div className="flex flex-1 overflow-hidden">
+        <FileExplorer 
+          files={files} 
+          modifiedFiles={modifiedFiles}
+          model={model}
           isLoading={isLoading}
-          onPromptSubmit={handlePromptSubmit}
-          onApplyChanges={handleApplyChanges}
-          onStopGeneration={handleStopGeneration}
+          onFileUpload={handleFileUpload}
+          onViewFile={handleViewFile}
+          onViewDiff={handleViewDiff}
+          onAddChatMessage={handleAddChatMessage}
+          onAcknowledgeFileChange={handleAcknowledgeFileChange}
+          onGenerateContext={handleGenerateContext}
+          onEditMemory={() => setIsMemoryEditorOpen(true)}
         />
+        <main className="flex-1 flex flex-col">
+          <ChatInterface 
+            chatHistory={chatHistory} 
+            isLoading={isLoading}
+            onPromptSubmit={handlePromptSubmit}
+            onApplyChanges={handleApplyChanges}
+            onStopGeneration={handleStopGeneration}
+          />
+        </main>
       </div>
-      <FileViewer
-        file={viewingFile}
-        onClose={() => setViewingFile(null)}
-      />
-      <FileDiffViewer
-        diff={viewingDiff}
-        onClose={() => setViewingDiff(null)}
+
+      <FileViewer file={viewingFile} onClose={() => setViewingFile(null)} />
+      <FileDiffViewer 
+        diff={viewingDiff} 
+        onClose={() => setViewingDiff(null)} 
         onRevert={handleRevertFile}
       />
       <MemoryEditor
@@ -538,6 +603,6 @@ export default function App(): React.ReactElement {
         onSave={handleSaveMemory}
         memory={longTermMemory}
       />
-    </main>
+    </div>
   );
 }
