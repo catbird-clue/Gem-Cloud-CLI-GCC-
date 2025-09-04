@@ -41,6 +41,7 @@ export function MemoryEditor({ isOpen, onClose, onSave, memory }: MemoryEditorPr
             onChange={(e) => setEditorContent(e.target.value)}
             className="w-full h-full bg-gray-900 text-gray-200 rounded-md p-3 focus:ring-2 focus:ring-indigo-500 focus:outline-none placeholder-gray-500 resize-none font-mono text-sm"
             placeholder="e.g., Always respond in a formal tone. Prefer functional components in React."
+            spellCheck={true}
             style={{minHeight: '300px'}}
           />
         </div>

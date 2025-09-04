@@ -311,6 +311,7 @@ export const ChatInterface = ({ chatHistory, isLoading, onPromptSubmit, onApplyC
                 className="w-full bg-gray-700 text-gray-200 rounded-lg p-3 pl-12 pr-12 resize-none focus:ring-2 focus:ring-indigo-500 focus:outline-none placeholder-gray-400"
                 rows={1}
                 disabled={isLoading}
+                spellCheck={true}
                 style={{ maxHeight: '200px', overflowY: 'auto' }}
               />
               <button
