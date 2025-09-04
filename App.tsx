@@ -11,6 +11,7 @@ import { streamChatResponse, generateContextResponse } from './services/geminiSe
 const MAX_HISTORY_LENGTH = 20; // Keep the last 20 file states
 const CONTEXT_CHAR_LIMIT = 25000; // Character limit for chat history before pruning
 const MEMORY_FILE_PATH = 'AI_Memory/long_term_memory.md';
+const CODE_BLOCK_LINE_THRESHOLD = 10; // Lines allowed in chat before collapsing
 
 
 /**
@@ -129,6 +130,31 @@ const parseFileChangesFromXml = (xmlString: string, existingFiles: UploadedFile[
     }
 
     return changes;
+};
+
+/**
+ * Sanitizes AI responses to prevent large code blocks from being displayed in the chat.
+ * Replaces any markdown code block longer than a threshold with a placeholder message.
+ * @param text The conversational part of the AI's response.
+ * @returns An object containing the sanitized text and a flag indicating if sanitization occurred.
+ */
+const sanitizeCodeBlocks = (text: string): { sanitizedText: string; wasSanitized: boolean } => {
+    let wasSanitized = false;
+    const codeBlockRegex = /```[\s\S]*?```/g;
+
+    const sanitizedText = text.replace(codeBlockRegex, (match) => {
+        const lines = match.split('\n');
+        // Subtract 2 for the ``` fences
+        const lineCount = lines.length > 2 ? lines.length - 2 : lines.length;
+
+        if (lineCount > CODE_BLOCK_LINE_THRESHOLD) {
+            wasSanitized = true;
+            return `[AI outputted a code block with ${lineCount} lines, which has been automatically collapsed to preserve context window. Please see the file changes panel for the full code.]`;
+        }
+        return match; // Keep the block if it's under the threshold
+    });
+
+    return { sanitizedText, wasSanitized };
 };
 
 
@@ -487,6 +513,7 @@ export default function App(): React.ReactElement {
       // --- 3. Process the complete response ---
       let proposedChanges: ProposedChange[] | undefined = undefined;
       let modelMessageError: string | undefined = undefined;
+      let modelMessageWarning: string | undefined = undefined;
       
       const changeBlockRegex = /<changes.*?>[\s\S]*?<\/changes>/;
       const match = fullModelResponse.match(changeBlockRegex);
@@ -497,6 +524,13 @@ export default function App(): React.ReactElement {
       if (match) {
           xmlPart = match[0];
           conversationalPart = fullModelResponse.replace(xmlPart, '').trim();
+      }
+
+      // --- Sanitize conversational part to remove large code blocks ---
+      const { sanitizedText, wasSanitized } = sanitizeCodeBlocks(conversationalPart);
+      conversationalPart = sanitizedText;
+      if (wasSanitized) {
+        modelMessageWarning = "The AI's response contained a large code block which was automatically collapsed. This is a violation of its instructions. This action was taken to protect the conversation's context."
       }
       
       if (xmlPart) {
@@ -517,6 +551,7 @@ export default function App(): React.ReactElement {
         content: conversationalPart,
         proposedChanges,
         error: modelMessageError,
+        warning: modelMessageWarning,
       };
       setChatHistory(prev => [...prev, modelMessage]);
 
