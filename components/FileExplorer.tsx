@@ -26,7 +26,6 @@ interface FileTreeProps {
 }
 
 const MEMORY_FILE_PATH = 'AI_Memory/long_term_memory.md';
-const CONTEXT_FILE_PATH = 'AI_Memory/session_summary.md';
 
 /**
  * Builds a file system tree structure from a flat list of files.
@@ -111,9 +110,6 @@ const FileTree = ({ node, modifiedFiles, onDownloadFile, onViewFile, onViewDiff,
             if (file.path === MEMORY_FILE_PATH) {
               displayName = 'Memory';
               displayIcon = <MemoryIcon className="w-4 h-4 mr-2 flex-shrink-0 text-indigo-400" />;
-            } else if (file.path === CONTEXT_FILE_PATH) {
-              displayName = 'Context';
-              displayIcon = <SummaryIcon className="w-4 h-4 mr-2 flex-shrink-0 text-indigo-400" />;
             }
             
             return (

@@ -1,3 +1,0 @@
-# This file should be renamed to .gitignore
-# It prevents the AI_Memory directory from being tracked by Git.
-AI_Memory/

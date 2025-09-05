@@ -12,6 +12,7 @@ const MAX_HISTORY_LENGTH = 20; // Keep the last 20 file states
 const CONTEXT_CHAR_LIMIT = 25000; // Character limit for chat history before pruning
 const MEMORY_FILE_PATH = 'AI_Memory/long_term_memory.md';
 const CODE_BLOCK_LINE_THRESHOLD = 10; // Lines allowed in chat before collapsing
+const CONVERSATIONAL_TEXT_CHAR_LIMIT = 2500; // Character limit for conversational text before flagging as a violation.
 
 
 /**
@@ -133,28 +134,42 @@ const parseFileChangesFromXml = (xmlString: string, existingFiles: UploadedFile[
 };
 
 /**
- * Sanitizes AI responses to prevent large code blocks from being displayed in the chat.
- * Replaces any markdown code block longer than a threshold with a placeholder message.
+ * Sanitizes AI responses to prevent large code blocks from being displayed in the chat
+ * and detects violations of the core instruction not to output raw code.
  * @param text The conversational part of the AI's response.
- * @returns An object containing the sanitized text and a flag indicating if sanitization occurred.
+ * @returns An object containing the sanitized text and a reason for the violation, if any.
  */
-const sanitizeCodeBlocks = (text: string): { sanitizedText: string; wasSanitized: boolean } => {
-    let wasSanitized = false;
+const sanitizeAndDetectViolations = (text: string): { sanitizedText: string; violationReason: string | null } => {
+    let violationReason: string | null = null;
+    let sanitizedText = text;
+
+    // Violation 1: Check for oversized markdown code blocks.
     const codeBlockRegex = /```[\s\S]*?```/g;
+    const matches = text.match(codeBlockRegex);
 
-    const sanitizedText = text.replace(codeBlockRegex, (match) => {
-        const lines = match.split('\n');
-        // Subtract 2 for the ``` fences
-        const lineCount = lines.length > 2 ? lines.length - 2 : lines.length;
+    if (matches) {
+        for (const match of matches) {
+            const lines = match.split('\n');
+            const lineCount = lines.length > 2 ? lines.length - 2 : lines.length;
 
-        if (lineCount > CODE_BLOCK_LINE_THRESHOLD) {
-            wasSanitized = true;
-            return `[AI outputted a code block with ${lineCount} lines, which has been automatically collapsed to preserve context window. Please see the file changes panel for the full code.]`;
+            if (lineCount > CODE_BLOCK_LINE_THRESHOLD) {
+                violationReason = `AI VIOLATION: The response contained a markdown code block with ${lineCount} lines, directly violating its instructions. The application has suppressed this output to maintain stability. All code must be provided in the file changes panel.`;
+                // Replace the entire conversational text, as this is a critical failure.
+                sanitizedText = `[The AI's conversational output was suppressed due to a critical instruction violation.]`;
+                return { sanitizedText, violationReason };
+            }
         }
-        return match; // Keep the block if it's under the threshold
-    });
+    }
 
-    return { sanitizedText, wasSanitized };
+    // Violation 2: Check for overall length of the conversational part, which could indicate a raw code dump without markdown fences.
+    if (text.length > CONVERSATIONAL_TEXT_CHAR_LIMIT) {
+        const lineCount = text.split('\n').length;
+        violationReason = `AI VIOLATION: The conversational response was abnormally long (${text.length} characters, ${lineCount} lines), suggesting a raw code dump. This violates core instructions. The application has truncated this output to maintain stability.`;
+        sanitizedText = `[The AI's abnormally long response was truncated by the application due to a critical instruction violation.]\n\n${text.substring(0, 250)}...`;
+        return { sanitizedText, violationReason };
+    }
+
+    return { sanitizedText, violationReason: null };
 };
 
 
@@ -182,36 +197,22 @@ export default function App(): React.ReactElement {
     const loadInitialFiles = async () => {
       setIsLoading(true);
       try {
-        const memoryFilePaths = [
-          'AI_Memory/long_term_memory.md',
-          'AI_Memory/session_summary.md'
-        ];
-
-        const filePromises = memoryFilePaths.map(async (path) => {
-          const response = await fetch(path);
-          if (!response.ok) {
-            // It's okay if files don't exist, we'll just start without them.
-            if (response.status === 404) {
-              return null;
-            }
-            throw new Error(`Failed to fetch ${path}: ${response.statusText}`);
-          }
-          const content = await response.text();
-          return { path, content };
-        });
-
-        const initialMemoryFiles = (await Promise.all(filePromises)).filter((file): file is UploadedFile => file !== null);
-        
-        setFiles(initialMemoryFiles);
-
-        const loadedFilesCount = initialMemoryFiles.length;
+        const memoryFilePath = 'AI_Memory/long_term_memory.md';
+        const response = await fetch(memoryFilePath);
+        let initialMemoryFiles: UploadedFile[] = [];
         let welcomeMessage = '';
 
-        if(loadedFilesCount > 0) {
-            welcomeMessage = `Welcome to Gemini Cloud CLI! I have loaded ${loadedFilesCount} file(s) from your project (Memory and/or Context). You can now upload your project folder to begin.`;
+        if (response.ok) {
+          const content = await response.text();
+          initialMemoryFiles.push({ path: memoryFilePath, content });
+          welcomeMessage = `Welcome to Gemini Cloud CLI! I have loaded your Long-Term Memory file. You can now upload your project folder to begin.`;
+        } else if (response.status === 404) {
+          welcomeMessage = `Welcome to Gemini Cloud CLI! No Long-Term Memory file was found. Upload your project folder using the button on the left to get started.`;
         } else {
-            welcomeMessage = `Welcome to Gemini Cloud CLI! No Memory or Context files were found. Upload your project folder using the button on the left to get started.`;
+          throw new Error(`Failed to fetch ${memoryFilePath}: ${response.statusText}`);
         }
+        
+        setFiles(initialMemoryFiles);
 
         setChatHistory([{
           role: 'model',
@@ -222,7 +223,7 @@ export default function App(): React.ReactElement {
         console.error("Failed to load initial files:", error);
         setChatHistory([{
           role: 'model',
-          error: `Failed to load initial Memory/Context files. Please ensure they exist and the application has permission to access them. You can still upload your project folder to begin.`,
+          error: `Failed to load Memory file. Please ensure it exists and the application has permission to access it. You can still upload your project folder to begin.`,
           content: ''
         }]);
       } finally {
@@ -413,9 +414,57 @@ export default function App(): React.ReactElement {
   }, [fileHistory]);
 
   const handleGenerateContext = useCallback(async () => {
-    if (isLoading || chatHistory.length < 2) {
-      const message = chatHistory.length < 2 ? "Not enough conversation to summarize." : "Please wait for the current task to complete.";
-      setChatHistory(prev => [...prev, {role: 'model', content: '', warning: message }]);
+    if (isLoading) {
+      setChatHistory(prev => [...prev, {role: 'model', content: '', warning: "Please wait for the current task to complete." }]);
+      return;
+    }
+
+    const summaryFiles = files.filter(f => f.path.endsWith('session_summary.md'));
+    let targetPath: string | null = null;
+
+    if (summaryFiles.length === 0) {
+        const projectRoots = [...new Set(files.map(f => f.path.split('/')[0]).filter(p => p !== 'AI_Memory' && !p.includes('.')))];
+
+        if (projectRoots.length === 0) {
+            setChatHistory(prev => [...prev, { role: 'model', content: '', error: "Cannot create a context summary. Please upload a project folder first." }]);
+            return;
+        } else if (projectRoots.length === 1) {
+            targetPath = `${projectRoots[0]}/session_summary.md`;
+        } else {
+            const options = projectRoots.map((p, i) => `${i + 1}: ${p}`).join('\n');
+            const choiceStr = window.prompt(`Please choose a project to save the session summary in:\n\n${options}`);
+            const choice = parseInt(choiceStr || '', 10) - 1;
+
+            if (!isNaN(choice) && choice >= 0 && choice < projectRoots.length) {
+                targetPath = `${projectRoots[choice]}/session_summary.md`;
+            } else {
+                if (choiceStr !== null) { // Don't show warning if user clicked "Cancel"
+                  setChatHistory(prev => [...prev, { role: 'model', content: '', warning: "Invalid selection. Context generation cancelled." }]);
+                }
+                return;
+            }
+        }
+    } else if (summaryFiles.length === 1) {
+        targetPath = summaryFiles[0].path;
+    } else {
+        const options = summaryFiles.map((f, i) => `${i + 1}: ${f.path}`).join('\n');
+        const choiceStr = window.prompt(`Multiple session summary files found. Please choose which one to update:\n\n${options}`);
+        const choice = parseInt(choiceStr || '', 10) - 1;
+
+        if (!isNaN(choice) && choice >= 0 && choice < summaryFiles.length) {
+            targetPath = summaryFiles[choice].path;
+        } else {
+            if (choiceStr !== null) { // Don't show warning if user clicked "Cancel"
+              setChatHistory(prev => [...prev, { role: 'model', content: '', warning: "Invalid selection. Context generation cancelled." }]);
+            }
+            return;
+        }
+    }
+
+    if (!targetPath) return;
+
+    if (chatHistory.length < 2) {
+      setChatHistory(prev => [...prev, {role: 'model', content: '', warning: "Not enough conversation to summarize." }]);
       return;
     }
 
@@ -423,7 +472,7 @@ export default function App(): React.ReactElement {
     stopGenerationRef.current = false;
 
     try {
-      const change = await generateContextResponse(chatHistory, files);
+      const change = await generateContextResponse(chatHistory, files, targetPath);
 
       if (stopGenerationRef.current) {
         throw new Error("Generation stopped by user");
@@ -431,7 +480,7 @@ export default function App(): React.ReactElement {
 
       setChatHistory(prev => [...prev, {
         role: 'model',
-        content: "I've generated a summary of our session. Please review the proposed change below to save it to the Context file.",
+        content: `I've generated a summary of our session. Please review the proposed change below to save it to ${targetPath}.`,
         proposedChanges: [change]
       }]);
 
@@ -513,7 +562,6 @@ export default function App(): React.ReactElement {
       // --- 3. Process the complete response ---
       let proposedChanges: ProposedChange[] | undefined = undefined;
       let modelMessageError: string | undefined = undefined;
-      let modelMessageWarning: string | undefined = undefined;
       
       const changeBlockRegex = /<changes.*?>[\s\S]*?<\/changes>/;
       const match = fullModelResponse.match(changeBlockRegex);
@@ -526,11 +574,12 @@ export default function App(): React.ReactElement {
           conversationalPart = fullModelResponse.replace(xmlPart, '').trim();
       }
 
-      // --- Sanitize conversational part to remove large code blocks ---
-      const { sanitizedText, wasSanitized } = sanitizeCodeBlocks(conversationalPart);
+      // --- Sanitize conversational part and detect violations ---
+      const { sanitizedText, violationReason } = sanitizeAndDetectViolations(conversationalPart);
       conversationalPart = sanitizedText;
-      if (wasSanitized) {
-        modelMessageWarning = "The AI's response contained a large code block which was automatically collapsed. This is a violation of its instructions. This action was taken to protect the conversation's context."
+      
+      if (violationReason) {
+        modelMessageError = violationReason;
       }
       
       if (xmlPart) {
@@ -541,7 +590,8 @@ export default function App(): React.ReactElement {
             }
         } catch (err) {
             console.error("Failed to parse file changes:", err);
-            modelMessageError = `The AI proposed an invalid file change format. Details: ${err instanceof Error ? err.message : String(err)}`;
+            const parseError = `The AI proposed an invalid file change format. Details: ${err instanceof Error ? err.message : String(err)}`;
+            modelMessageError = modelMessageError ? `${modelMessageError}\n\nAdditionally, there was a technical error:\n${parseError}` : parseError;
         }
       }
 
@@ -551,7 +601,7 @@ export default function App(): React.ReactElement {
         content: conversationalPart,
         proposedChanges,
         error: modelMessageError,
-        warning: modelMessageWarning,
+        warning: undefined,
       };
       setChatHistory(prev => [...prev, modelMessage]);
 

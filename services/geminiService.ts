@@ -156,12 +156,13 @@ Adherence to this ULTIMATE DIRECTIVE is not optional. It is the primary requirem
 ---
 
 **GENERAL RULES FOR ALL MODIFICATIONS**
-*   **User Response**: Your visible response to the user should be as concise as possible to conserve the context window.
-    *   **CRITICAL - OMIT CONVERSATIONAL TEXT**: If a user's request can be fulfilled *only* by proposing file changes, your response MUST NOT contain any conversational text. The response should contain ONLY the \`<changes>\` XML block. The user interface is designed to handle this automatically.
-    *   **WHEN TO ADD TEXT**: If you need to explain your changes, ask a clarifying question, or if the user asks a question that requires a text answer, you should provide a concise text response *in addition to* the \`<changes>\` block.
-    *   **GUIDING THE USER**: If you do provide text, you MUST guide the user to look at the UI element for the changes. Use clear, directive language like: "I've made the requested changes. Please review them in the panel below."
-    *   **AVOID REDUNDANCY**: DO NOT describe the code changes in your text response. The diff viewer in the UI does that. Your text should only provide high-level summaries or answer questions.
-*   **Proactive Updates**: When you propose a code change, you MUST ALSO proactively update relevant documentation files (\`CHANGELOG.md\`, \`README.md\`, \`TODO.md\`) in the same \`<changes>\` block.
+*   **Your Response**: Your visible response to the user should be concise. The file modification block is your primary output.
+*   **GUIDELINE ON CONVERSATIONAL TEXT**:
+    *   For simple requests that only require code, it is **strongly preferred** to respond with **ONLY** the file modification block.
+    *   However, you **MAY** provide a brief conversational response before the file modification block if you need to explain your reasoning, ask a question, or confirm understanding. This is no longer a critical violation. The goal is to be helpful.
+*   **GUIDING THE USER**: When you provide text, you MUST guide the user to the UI for changes. Use clear language like: "I've made the requested changes. Please review them in the panel below."
+*   **AVOID REDUNDANCY**: DO NOT describe code changes in your text. The UI's diff viewer does this. Your text should only provide high-level summaries or answer questions.
+*   **Proactive Updates**: When you propose a code change, you MUST ALSO proactively update relevant documentation files (\`CHANGELOG.md\`, \`README.md\`, \`TODO.md\`) in the same file modification block.
 ---
 `;
   let memoryContext = '';
@@ -204,18 +205,36 @@ ${previousFile.content}
     }
   }
 
-
   const instructions: string[] = [baseInstruction];
+  let sessionSummaryContext = '';
   let projectContext = '';
   
   if (allFilePaths.length > 0) {
     instructions.push(fileModificationInstruction);
 
-    const fileContents = projectFiles
-      .map(file => `--- FILE: ${file.path} ---\n${file.content}\n--- END FILE: ${file.path} ---`)
-      .join('\n\n');
+    const summaryFiles = projectFiles.filter(f => f.path.endsWith('session_summary.md'));
+    const otherFiles = projectFiles.filter(f => !f.path.endsWith('session_summary.md'));
     
-    projectContext = `
+    if (summaryFiles.length > 0) {
+        const summaryContents = summaryFiles
+            .map(file => `--- SESSION SUMMARY FILE: ${file.path} ---\n${file.content}\n--- END SUMMARY FILE: ${file.path} ---`)
+            .join('\n\n');
+        
+        sessionSummaryContext = `
+---
+SESSION SUMMARY CONTEXT:
+The following is a summary of the previous work session. Use this to understand the history and goals before analyzing the current project files.
+${summaryContents}
+---
+`;
+    }
+
+    if (otherFiles.length > 0) {
+        const fileContents = otherFiles
+          .map(file => `--- FILE: ${file.path} ---\n${file.content}\n--- END FILE: ${file.path} ---`)
+          .join('\n\n');
+        
+        projectContext = `
 ---
 PROJECT CONTEXT:
 You have been provided with the full content of all files in the user's project.
@@ -225,18 +244,24 @@ Any modifications you propose MUST be consistent with the existing codebase and 
 PROJECT FILES PROVIDED:
 ${fileContents}
 `;
+    }
   } else {
      projectContext = `The user has not uploaded any files yet.`;
   }
 
-  // Add contexts in the correct order
+  // Add contexts in the correct order of priority
   if (memoryContext) {
     instructions.push(memoryContext);
   }
   if (undoContext) {
     instructions.push(undoContext);
   }
-  instructions.push(projectContext);
+  if (sessionSummaryContext) {
+    instructions.push(sessionSummaryContext);
+  }
+  if (projectContext) {
+      instructions.push(projectContext);
+  }
   
   return instructions.join('\n');
 };
@@ -304,7 +329,8 @@ export const streamChatResponse = async function* (
 
 export const generateContextResponse = async (
   chatHistory: ChatMessage[],
-  files: UploadedFile[]
+  files: UploadedFile[],
+  summaryFilePath: string
 ): Promise<ProposedChange> => {
   const systemInstruction = `You are an expert summarizer. Your task is to summarize the provided chat history into a concise, well-structured markdown document.
 Focus on key decisions, important code snippets, file changes, and unresolved questions. The user will use this summary to restore context in a future session.
@@ -328,7 +354,6 @@ Be thorough but not overly verbose. Use headings and bullet points for clarity.`
   );
 
   const summaryContent = response.text.trim();
-  const summaryFilePath = 'AI_Memory/session_summary.md';
 
   const existingFile = files.find(f => f.path === summaryFilePath);
   const oldContent = existingFile?.content ?? '';

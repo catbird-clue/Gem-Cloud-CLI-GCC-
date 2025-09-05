@@ -21,9 +21,12 @@ This is a session-only tool, but you can easily carry your work across multiple 
 
 1.  **Work in a Session:** Upload your project and work with the AI as usual.
 2.  **Generate Context:** At the end of a session, click the **"Generate Context"** button (the document icon in the File Explorer).
-3.  **Review and Save:** The AI will generate a summary of your conversation and propose saving it to a file (usually `AI_Memory/session_summary.md`). This will appear as a new message in the chat. Review the proposed change and click **"Apply Changes"** to save it to your project.
-4.  **Download Your Work:** Download the new context file and any other modified files from the File Explorer.
-5.  **Continue Later:** To continue your work in a new session, simply upload your project folder again, making sure it includes the `AI_Memory/session_summary.md` file. The AI will read the summary and be fully up-to-date on your project's history and goals.
+3.  **Review and Save:** The AI will generate a summary of your conversation.
+    *   If you have a `session_summary.md` file in your project, it will propose updating it.
+    *   If you don't, it will ask you where to create a new `session_summary.md` file.
+    This will appear as a new message in the chat. Review the proposed change and click **"Apply Changes"** to save it to your project.
+4.  **Download Your Work:** Download the `session_summary.md` file and any other modified files from the File Explorer.
+5.  **Continue Later:** To continue your work in a new session, simply upload your project folder again, making sure it includes the `session_summary.md` file. The AI will read the summary and be fully up-to-date on your project's history and goals.
 
 ---
 
