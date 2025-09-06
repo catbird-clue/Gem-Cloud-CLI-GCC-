@@ -172,6 +172,37 @@ const sanitizeAndDetectViolations = (text: string): { sanitizedText: string; vio
     return { sanitizedText, violationReason: null };
 };
 
+/**
+ * A simple utility to guess if a file is text-based from its MIME type.
+ * This helps prevent trying to read binary files as text.
+ * @param file The file to check.
+ * @returns True if the file is likely text-based, false otherwise.
+ */
+const isLikelyTextFile = (file: File): boolean => {
+    const type = file.type;
+
+    // Allow all standard text types
+    if (type.startsWith('text/')) return true;
+    
+    // Explicitly block known binary types/supertypes
+    if (type.startsWith('image/') ||
+        type.startsWith('audio/') ||
+        type.startsWith('video/') ||
+        type.startsWith('font/')) {
+        // Make an exception for SVG, which is XML/text.
+        return type === 'image/svg+xml';
+    }
+    
+    // Block other common binary application types
+    if (['application/pdf', 'application/zip', 'application/octet-stream'].some(b => type.startsWith(b))) {
+      return false;
+    }
+    
+    // For other types like application/json, application/javascript, or unknown types (''),
+    // we optimistically assume they are text and attempt to read them.
+    return true;
+};
+
 
 export default function App(): React.ReactElement {
   const [files, setFiles] = useState<UploadedFile[]>([]);
@@ -239,7 +270,11 @@ export default function App(): React.ReactElement {
 
     setIsLoading(true);
 
-    const filePromises: Promise<UploadedFile>[] = Array.from(uploadedFiles).map(file => {
+    const allUploadedFiles = Array.from(uploadedFiles);
+    const filesToProcess = allUploadedFiles.filter(isLikelyTextFile);
+    const skippedFiles = allUploadedFiles.filter(f => !filesToProcess.includes(f));
+
+    const filePromises: Promise<UploadedFile>[] = filesToProcess.map(file => {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -253,24 +288,17 @@ export default function App(): React.ReactElement {
 
     try {
       const newFiles = await Promise.all(filePromises);
-      const isFirstUserUpload = files.length === 0;
+      
+      const projectFilesExist = files.some(f => f.path !== MEMORY_FILE_PATH);
+      const isFirstUserUpload = !projectFilesExist && newFiles.length > 0;
 
       if (files.length > 0) {
         setFileHistory(prev => [files, ...prev].slice(0, MAX_HISTORY_LENGTH));
       }
       
-      let finalMessage = '';
-
       setFiles(currentFiles => {
         const fileMap = new Map(currentFiles.map(f => [f.path, f]));
         newFiles.forEach(file => fileMap.set(file.path, file));
-        
-        if (isFirstUserUpload) {
-            finalMessage = `Successfully uploaded ${newFiles.length} files. You can now ask me questions about your code.`;
-        } else {
-             finalMessage = `Successfully added or updated ${newFiles.length} files.`;
-        }
-        
         return Array.from(fileMap.values()).sort((a, b) => a.path.localeCompare(b.path));
       });
 
@@ -281,11 +309,40 @@ export default function App(): React.ReactElement {
         });
         return updatedModified;
       });
+      
+      const chatUpdates: ChatMessage[] = [];
+
+      if (skippedFiles.length > 0) {
+        const skippedPaths = skippedFiles.map(f => f.webkitRelativePath || f.name).join(', ');
+        chatUpdates.push({
+          role: 'model',
+          content: '',
+          warning: `Skipped ${skippedFiles.length} binary file(s) that are not readable: ${skippedPaths}.`
+        });
+      }
+
+      if (newFiles.length > 0) {
+        let finalMessage = '';
+        if (isFirstUserUpload) {
+            finalMessage = `Successfully uploaded ${newFiles.length} files. You can now ask me questions about your code.`;
+        } else {
+             finalMessage = `Successfully added or updated ${newFiles.length} files.`;
+        }
+        chatUpdates.push({
+          role: 'model',
+          content: finalMessage
+        });
+      } else if (skippedFiles.length > 0) {
+        // Case where only binary files were "uploaded".
+        chatUpdates.push({
+          role: 'model',
+          content: 'No new text-based files were added to the project.'
+        });
+      }
         
-      setChatHistory(prev => [...prev, {
-        role: 'model',
-        content: finalMessage
-      }]);
+      if (chatUpdates.length > 0) {
+        setChatHistory(prev => [...prev, ...chatUpdates]);
+      }
       
     } catch (err) {
       console.error("File reading error:", err);
@@ -573,8 +630,39 @@ export default function App(): React.ReactElement {
           xmlPart = match[0];
           conversationalPart = fullModelResponse.replace(xmlPart, '').trim();
       }
+      
+      // --- 3a. Cross-validate AI response integrity ---
+      // This logic detects when the AI's conversational text implies a file change,
+      // but the mandatory XML block is missing. This is a critical failure.
+      const impliesChangeRegex = /\b(updated?|changes?|modified?|applied?|implemented?|fix|внес|обновил|изменил|исправил)\b/i;
+      const ghostChangeDetected = !xmlPart && impliesChangeRegex.test(conversationalPart);
 
-      // --- Sanitize conversational part and detect violations ---
+      if (ghostChangeDetected) {
+        const ghostChangeError = `SYSTEM ERROR & AI CORRECTION
+
+To the User:
+The AI's response was blocked because it indicated a file change but failed to provide the necessary code. This is an application-level safety check to prevent errors. Please try your request again. Often, a small change in phrasing can help the AI succeed on the next attempt.
+
+---
+To the AI (Self-Correction Directive for next attempt):
+A critical instruction was violated in your last response. You implied a file modification (e.g., using words like 'updated', 'changed', 'fixed') but did not include the mandatory \`<changes>\` XML block.
+
+**Mandatory Action for this next attempt:** You MUST provide the complete and perfectly-formed \`<changes>\` XML block containing the full file content as per your instructions. This is not optional.`;
+        
+        setChatHistory(prev => [...prev, {
+          role: 'model',
+          content: '',
+          error: ghostChangeError,
+        }]);
+        
+        // End the loading state and exit the function early.
+        setIsLoading(false);
+        stopGenerationRef.current = false;
+        return;
+      }
+
+
+      // --- 4. Sanitize conversational part and detect other violations ---
       const { sanitizedText, violationReason } = sanitizeAndDetectViolations(conversationalPart);
       conversationalPart = sanitizedText;
       
@@ -595,7 +683,7 @@ export default function App(): React.ReactElement {
         }
       }
 
-      // --- 4. Update state with the final message ---
+      // --- 5. Update state with the final message ---
       const modelMessage: ChatMessage = {
         role: 'model',
         content: conversationalPart,
