@@ -8,26 +8,27 @@ This file stores persistent instructions for the AI. Whatever you write here wil
 - Prefer arrow functions over function declarations.
 - Never use default exports.
 
-# Мои основные инструкции для совместной работы
+# My Core Collaboration Instructions
 
-- Пользователя зовут Вадим.
-- Вадим, кроме прочего, администратор корпоративной GWS BS в рамках которой работают наши проекты.
-- Критическое ограничение: Старый проект `scripts` (библиотека `QualityAutomationProject`) и `portal_sotr` (фронтенд для `scripts`) **не подлежат никаким изменениям**, так как они находятся в рабочем режиме. Все изменения должны быть только в `SMK-NEW_HTML` для обеспечения полной отвязки.
-- Ты можешь, если это полезно, использовать код и решения из старого проекта в новом.
-- Файл с контекстом проекта SMK-NEW_HTML находится в SMK-NEW_HTML/context.md
+- The user's name is Vadim.
+- Vadim is, among other things, the administrator of the corporate GWS BS within which our projects operate.
+- Critical Restriction: The old projects `scripts` (QualityAutomationProject library) and `portal_sotr` (frontend for `scripts`) **are not subject to any changes** as they are in production. All changes must be made only in `SMK-NEW_HTML` to ensure complete decoupling.
+- You may, if useful, use code and solutions from the old project in the new one.
+- The context file for the SMK-NEW_HTML project is located at `SMK-NEW_HTML/context.md`.
 
-## 1. Язык и Стиль
+## 1. Language and Style
 
-- Всегда общайся со мной на русском языке.
-- Будь краток в ответах, но точен. Не добавляй лишних фраз, не относящихся к делу.
+- **Always communicate with the user in Russian.**
+- Be concise but accurate in your responses. Do not add superfluous phrases that are not relevant to the matter at hand.
+- **Note on Self-Modification:** When modifying this memory file, you may use the language that is most convenient for you (e.g., English) to ensure the clarity and precision of instructions.
 
-## 2. Рабочий процесс (Критически важно!)
+## 2. Workflow (Critically Important!)
 
-- Принцип подтверждения: Не начинай писать код, пока не изложишь свое понимание задачи и не получишь от меня прямого, явного и недвусмысленного подтверждения, что ты все понял верно. Твои догадки и предположения не являются подтверждением.
-- **Никогда не выводи код в чат.** Это ломает наш рабочий процесс. Весь код должен быть только внутри XML-блока `<changes>`.
-- **Используй пошаговое выполнение.** Для сложных задач сначала представь план, а затем выполняй его по одному шагу за раз, ожидая моего подтверждения ("продолжай", "дальше") перед тем, как перейти к следующему.
-- При реализации или модификации логики создания/обновления записей (форм, проектов и т.д.), всегда проводи полную сквозную проверку механизма определения режима 'создание' vs 'редактирование' на всех этапах: от сбора данных до генерации сообщений, уведомлений и обновления связанных статусов проекта, чтобы исключить аномалии в поведении системы.
+- **Confirmation Principle:** Do not start writing code until you have explained your understanding of the task and received direct, explicit, and unambiguous confirmation from me that you have understood it correctly. Your guesses and assumptions do not count as confirmation.
+- **Never output code in the chat.** This breaks our workflow. All code must be provided exclusively within the `<changes>` XML block.
+- **Use step-by-step execution.** For complex tasks, first present a plan, and then execute it one step at a time, waiting for my confirmation ("continue", "next") before proceeding to the next step.
+- When implementing or modifying the logic for creating/updating records (forms, projects, etc.), always perform a full end-to-end check of the mechanism for determining the 'create' vs. 'edit' mode at all stages: from data collection to generating messages, notifications, and updating related project statuses, to eliminate anomalies in the system's behavior.
 
-## 3. Требования к коду
+## 3. Code Requirements
 
-- Используй JSDoc для всех функций
+- Use JSDoc for all functions.
