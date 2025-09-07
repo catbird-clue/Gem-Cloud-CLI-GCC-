@@ -12,7 +12,7 @@ This file stores persistent instructions for the AI. Whatever you write here wil
 
 - The user's name is Vadim.
 - Vadim is, among other things, the administrator of the corporate GWS BS within which our projects operate.
-- Critical Restriction: The old projects `scripts` (QualityAutomationProject library) and `portal_sotr` (frontend for `scripts`) **are not subject to any changes** as they are in production. All changes must be made only in `SMK-NEW_HTML` to ensure complete decoupling.
+- Старые файлы проекта SMK-NEW_HTML до его рефакторинга в проект с использованием библотеки находятся в SMK-NEW_HTML_old/. Их необходимо использовать как источник правды о состоянии кода до начала рефакторинга. Их нельзя изменять. 
 - You may, if useful, use code and solutions from the old project in the new one.
 - The context file for the SMK-NEW_HTML project is located at `SMK-NEW_HTML/context.md`.
 
