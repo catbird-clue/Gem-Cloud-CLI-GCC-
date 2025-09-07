@@ -25,7 +25,7 @@ interface FileTreeProps {
   level?: number;
 }
 
-const MEMORY_FILE_PATH = 'AI_Memory/long_term_memory.md';
+const MEMORY_FILE_PATH = 'AI_Memory/GEMINI.md';
 
 /**
  * Builds a file system tree structure from a flat list of files.

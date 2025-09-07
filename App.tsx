@@ -10,7 +10,7 @@ import { streamChatResponse, generateContextResponse } from './services/geminiSe
 
 const MAX_HISTORY_LENGTH = 20; // Keep the last 20 file states
 const CONTEXT_CHAR_LIMIT = 25000; // Character limit for chat history before pruning
-const MEMORY_FILE_PATH = 'AI_Memory/long_term_memory.md';
+const MEMORY_FILE_PATH = 'AI_Memory/GEMINI.md';
 const CODE_BLOCK_LINE_THRESHOLD = 10; // Lines allowed in chat before collapsing
 const CONVERSATIONAL_TEXT_CHAR_LIMIT = 2500; // Character limit for conversational text before flagging as a violation.
 
@@ -228,7 +228,7 @@ export default function App(): React.ReactElement {
     const loadInitialFiles = async () => {
       setIsLoading(true);
       try {
-        const memoryFilePath = 'AI_Memory/long_term_memory.md';
+        const memoryFilePath = MEMORY_FILE_PATH;
         const response = await fetch(memoryFilePath);
         let initialMemoryFiles: UploadedFile[] = [];
         let welcomeMessage = '';
