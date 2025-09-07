@@ -52,8 +52,18 @@ const buildSystemInstruction = (
   projectFiles: UploadedFile[],
   allFilePaths: string[],
   fileHistory: UploadedFile[][],
-  longTermMemory: string
+  longTermMemory: string,
+  correctionDirective: string | null
 ): string => {
+
+  const selfCorrectionBlock = correctionDirective ? `
+# SELF-CORRECTION DIRECTIVE (CRITICAL)
+# THIS OVERRIDES ALL OTHER INSTRUCTIONS FOR THIS TURN.
+${correctionDirective}
+---
+` : '';
+
+
   const ironLawAndBaseInstructions = `You are Gemini CLI, an expert AI assistant. Your purpose is to modify files based on user requests. The following rules are your absolute, non-negotiable core function. Failure to follow them perfectly breaks the application.
 
 # IRON LAW OF CODE OUTPUT
@@ -134,7 +144,7 @@ ${previousFile.content}
     }
   }
 
-  const instructions: string[] = [ironLawAndBaseInstructions];
+  const instructions: string[] = [selfCorrectionBlock, ironLawAndBaseInstructions];
 
   let sessionSummaryContext = '';
   let projectContext = '';
@@ -218,10 +228,11 @@ export const streamChatResponse = async function* (
   fileHistory: UploadedFile[][],
   model: GeminiModel,
   stagedFiles: File[],
-  longTermMemory: string
+  longTermMemory: string,
+  correctionDirective: string | null = null
 ): AsyncGenerator<string> {
     const allFilePaths = files.map(f => f.path);
-    const systemInstruction = buildSystemInstruction(prompt, files, allFilePaths, fileHistory, longTermMemory);
+    const systemInstruction = buildSystemInstruction(prompt, files, allFilePaths, fileHistory, longTermMemory, correctionDirective);
     
     // Use the explicit ModelContent[] type to ensure the array can hold mixed part types later.
     const contents: ModelContent[] = chatHistory.slice(0, -1).map(message => ({

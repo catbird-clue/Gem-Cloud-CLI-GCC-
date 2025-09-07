@@ -604,94 +604,111 @@ export default function App(): React.ReactElement {
     const historyForApi = [...prunedHistory, userMessage];
     setChatHistory(prev => [...prev, ...newMessages]);
     
-    try {
-      // --- 2. Accumulate full response in the background ---
-      const responseStream = streamChatResponse(prompt, historyForApi, files, fileHistory, model, stagedFiles, longTermMemory);
-      let fullModelResponse = '';
-      for await (const chunk of responseStream) {
-        if (stopGenerationRef.current) {
-          fullModelResponse += '\n\n*(Generation stopped by user)*';
-          break;
+    // This inner function handles a single generation attempt.
+    const generateAndProcessResponse = async (correctionDirective: string | null = null): Promise<{
+      finalMessage: ChatMessage;
+      needsCorrection: boolean;
+      correctionReason?: 'ghost' | 'xml';
+    }> => {
+        // --- 2. Accumulate full response in the background ---
+        const responseStream = streamChatResponse(prompt, historyForApi, files, fileHistory, model, stagedFiles, longTermMemory, correctionDirective);
+        let fullModelResponse = '';
+        for await (const chunk of responseStream) {
+            if (stopGenerationRef.current) {
+                fullModelResponse += '\n\n*(Generation stopped by user)*';
+                break;
+            }
+            fullModelResponse += chunk;
         }
-        fullModelResponse += chunk;
-      }
 
-      // --- 3. Process the complete response ---
-      let proposedChanges: ProposedChange[] | undefined = undefined;
-      let modelMessageError: string | undefined = undefined;
-      
-      const changeBlockRegex = /<changes.*?>[\s\S]*?<\/changes>/;
-      const match = fullModelResponse.match(changeBlockRegex);
+        // --- 3. Process the complete response ---
+        const changeBlockRegex = /<changes.*?>[\s\S]*?<\/changes>/;
+        const match = fullModelResponse.match(changeBlockRegex);
+        let conversationalPart = fullModelResponse;
+        let xmlPart = '';
+        if (match) {
+            xmlPart = match[0];
+            conversationalPart = fullModelResponse.replace(xmlPart, '').trim();
+        }
+        
+        // --- 3a. Check for "ghost change" violation ---
+        const impliesChangeRegex = /\b(updated?|changes?|modified?|applied?|implemented?|fix|created?|added?|deleted?|removed?|внес|обновил|изменил|исправил|создал|добавил|удалил)\b/i;
+        if (!xmlPart && impliesChangeRegex.test(conversationalPart)) {
+            return { finalMessage: { role: 'model', content: '' }, needsCorrection: true, correctionReason: 'ghost' };
+        }
+        
+        // --- 3b. Check for XML parsing violation ---
+        let proposedChanges: ProposedChange[] | undefined = undefined;
+        if (xmlPart) {
+            try {
+                const parsedChanges = parseFileChangesFromXml(xmlPart, files);
+                if (parsedChanges.length > 0) {
+                    proposedChanges = parsedChanges;
+                } else if (xmlPart.includes('<change')) {
+                    // If the XML block seems to contain a change but nothing was parsed,
+                    // it's a malformed XML error. Trigger self-correction.
+                    console.warn("Detected a malformed XML block. Triggering self-correction.");
+                    return { finalMessage: { role: 'model', content: '' }, needsCorrection: true, correctionReason: 'xml' };
+                }
+            } catch (err) {
+                 // This is a fallback for any unexpected errors during parsing.
+                console.error("Failed to parse file changes from AI:", err);
+                return { finalMessage: { role: 'model', content: '' }, needsCorrection: true, correctionReason: 'xml' };
+            }
+        }
 
-      let conversationalPart = fullModelResponse;
-      let xmlPart = '';
+        // --- 4. If no corrections needed, sanitize and finalize the message ---
+        const { sanitizedText, violationReason } = sanitizeAndDetectViolations(conversationalPart);
+        
+        const finalMessage: ChatMessage = {
+            role: 'model',
+            content: sanitizedText,
+            proposedChanges,
+            error: violationReason, // This is for other violations like code in chat
+        };
+        return { finalMessage, needsCorrection: false };
+    };
 
-      if (match) {
-          xmlPart = match[0];
-          conversationalPart = fullModelResponse.replace(xmlPart, '').trim();
-      }
-      
-      // --- 3a. Cross-validate AI response integrity ---
-      // This logic detects when the AI's conversational text implies a file change,
-      // but the mandatory XML block is missing. This is a critical failure.
-      const impliesChangeRegex = /\b(updated?|changes?|modified?|applied?|implemented?|fix|внес|обновил|изменил|исправил)\b/i;
-      const ghostChangeDetected = !xmlPart && impliesChangeRegex.test(conversationalPart);
+    try {
+        // --- First Attempt ---
+        let result = await generateAndProcessResponse();
 
-      if (ghostChangeDetected) {
-        const ghostChangeError = `SYSTEM ERROR & AI CORRECTION
+        // --- Self-Correction Attempt ---
+        if (result.needsCorrection) {
+            console.warn(`AI response failed validation (${result.correctionReason}). Triggering self-correction.`);
+            
+            let correctionDirective: string;
+            if (result.correctionReason === 'xml') {
+                 correctionDirective = `A critical instruction was violated in your last response. You provided a \`<changes>\` XML block, but it was malformed or incomplete, and the application could not parse it.
+
+**Mandatory Action for this next attempt:** Review your previous output, identify the XML error, and provide the complete and perfectly-formed \`<changes>\` XML block containing the full file content as per your instructions. This is not optional.`;
+            } else { // 'ghost' or default
+                 correctionDirective = `A critical instruction was violated in your last response. You implied a file modification (e.g., using words like 'updated', 'changed', 'fixed') but did not include the mandatory \`<changes>\` XML block.
+
+**Mandatory Action for this next attempt:** You MUST provide the complete and perfectly-formed \`<changes>\` XML block containing the full file content as per your instructions. This is not optional.`;
+            }
+            
+            result = await generateAndProcessResponse(correctionDirective);
+
+            // If it still needs correction after the second attempt, it's a hard failure.
+            if (result.needsCorrection) {
+              const hardFailureError = `SYSTEM ERROR & AI CORRECTION FAILURE
 
 To the User:
-The AI's response was blocked because it indicated a file change but failed to provide the necessary code. This is an application-level safety check to prevent errors. Please try your request again. Often, a small change in phrasing can help the AI succeed on the next attempt.
+The AI's response was blocked because it repeatedly failed to provide valid code for a file change. This is an application-level safety check. Please try your request again. Often, a small change in phrasing can help the AI succeed.
 
 ---
 To the AI (Self-Correction Directive for next attempt):
-A critical instruction was violated in your last response. You implied a file modification (e.g., using words like 'updated', 'changed', 'fixed') but did not include the mandatory \`<changes>\` XML block.
+You have failed twice to follow a critical instruction. You MUST provide the \`<changes>\` XML block when you modify files. This rule is absolute.`;
 
-**Mandatory Action for this next attempt:** You MUST provide the complete and perfectly-formed \`<changes>\` XML block containing the full file content as per your instructions. This is not optional.`;
-        
-        setChatHistory(prev => [...prev, {
-          role: 'model',
-          content: '',
-          error: ghostChangeError,
-        }]);
-        
-        // End the loading state and exit the function early.
-        setIsLoading(false);
-        stopGenerationRef.current = false;
-        return;
-      }
-
-
-      // --- 4. Sanitize conversational part and detect other violations ---
-      const { sanitizedText, violationReason } = sanitizeAndDetectViolations(conversationalPart);
-      conversationalPart = sanitizedText;
-      
-      if (violationReason) {
-        modelMessageError = violationReason;
-      }
-      
-      if (xmlPart) {
-        try {
-            const parsedChanges = parseFileChangesFromXml(xmlPart, files);
-            if (parsedChanges.length > 0) {
-                proposedChanges = parsedChanges;
+              setChatHistory(prev => [...prev, { role: 'model', content: '', error: hardFailureError }]);
+              return; // Exit after setting the error
             }
-        } catch (err) {
-            console.error("Failed to parse file changes:", err);
-            const parseError = `The AI proposed an invalid file change format. Details: ${err instanceof Error ? err.message : String(err)}`;
-            modelMessageError = modelMessageError ? `${modelMessageError}\n\nAdditionally, there was a technical error:\n${parseError}` : parseError;
         }
-      }
 
-      // --- 5. Update state with the final message ---
-      const modelMessage: ChatMessage = {
-        role: 'model',
-        content: conversationalPart,
-        proposedChanges,
-        error: modelMessageError,
-        warning: undefined,
-      };
-      setChatHistory(prev => [...prev, modelMessage]);
+        // --- Success ---
+        // If we reach here, either the first or the second attempt was successful.
+        setChatHistory(prev => [...prev, result.finalMessage]);
 
     } catch (err) {
       console.error("Chat generation error:", err);
