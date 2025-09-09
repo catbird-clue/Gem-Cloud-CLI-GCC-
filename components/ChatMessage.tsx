@@ -96,50 +96,55 @@ export const ChatMessage = memo(({ message, index, isLoading = false, onApplyCha
           {message.proposedChanges!.map((change, idx) => (
             <FileChangePreview key={idx} change={change} />
           ))}
-          {!isHandled ? (
-            <div className="flex gap-2 mt-4 pt-3 border-t border-gray-600/50">
-              <button
-                onClick={handleApply}
-                className="bg-green-600 hover:bg-green-500 text-white font-bold py-1 px-3 rounded text-sm transition-colors"
-              >
-                Apply Changes
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saveStatus === 'success'}
-                className={`text-white font-bold py-1 px-3 rounded text-sm transition-colors flex items-center gap-1.5 disabled:opacity-75 ${
-                  saveStatus === 'success' 
-                    ? 'bg-green-600' 
-                    : 'bg-indigo-600 hover:bg-indigo-500'
-                }`}
-                title="Save the user prompt, AI response, and this diff to a markdown file for review"
-              >
-                {saveStatus === 'success' ? (
-                  <>
-                    <CheckIcon className="w-4 h-4" />
-                    Saved!
-                  </>
-                ) : (
-                  <>
-                    <SaveIcon className="w-4 h-4" />
-                    Save Proposal
-                  </>
-                )}
-              </button>
-              <button
-                onClick={handleReject}
-                className="bg-red-600 hover:bg-red-500 text-white font-bold py-1 px-3 rounded text-sm transition-colors"
-              >
-                Reject
-              </button>
+          <div className="flex justify-between items-center mt-4 pt-3 border-t border-gray-600/50">
+            <div className="flex-grow">
+              {!isHandled ? (
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleApply}
+                    className="bg-green-600 hover:bg-green-500 text-white font-bold py-1 px-3 rounded text-sm transition-colors"
+                  >
+                    Apply Changes
+                  </button>
+                  <button
+                    onClick={handleReject}
+                    className="bg-red-600 hover:bg-red-500 text-white font-bold py-1 px-3 rounded text-sm transition-colors"
+                  >
+                    Reject
+                  </button>
+                </div>
+              ) : (
+                <p className={`text-sm font-semibold ${
+                    action === 'applied' ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                  { action === 'applied' ? 'Changes applied.' : 'Changes rejected.' }
+                </p>
+              )}
             </div>
-          ) : (
-            <p className={`text-sm font-semibold mt-4 pt-3 border-t border-gray-600/50 ${
-                action === 'applied' ? 'text-green-400' : 'text-red-400'
-              }`}>
-              { action === 'applied' ? 'Changes applied.' : 'Changes rejected.' }
-            </p>
-          )}
+            
+            <button
+              onClick={handleSave}
+              disabled={saveStatus === 'success'}
+              className={`text-white font-bold py-1 px-3 rounded text-sm transition-colors flex items-center gap-1.5 disabled:opacity-75 ${
+                saveStatus === 'success' 
+                  ? 'bg-green-600' 
+                  : 'bg-indigo-600 hover:bg-indigo-500'
+              }`}
+              title="Save the user prompt, AI response, and this diff to a markdown file for review"
+            >
+              {saveStatus === 'success' ? (
+                <>
+                  <CheckIcon className="w-4 h-4" />
+                  Saved!
+                </>
+              ) : (
+                <>
+                  <SaveIcon className="w-4 h-4" />
+                  Save Proposal
+                </>
+              )}
+            </button>
+          </div>
         </div>
       );
     }
