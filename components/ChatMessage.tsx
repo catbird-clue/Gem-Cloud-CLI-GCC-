@@ -90,60 +90,66 @@ export const ChatMessage = memo(({ message, index, isLoading = false, onApplyCha
   const contentDisplay = () => {
     // Model-specific logic for proposed changes
     if (isModel && hasProposedChanges && !isLoading) {
+      const saveProposalButton = (
+        <button
+          onClick={handleSave}
+          disabled={saveStatus === 'success'}
+          className={`text-white font-bold py-1 px-3 rounded text-sm transition-colors flex items-center gap-1.5 disabled:opacity-75 ${
+            saveStatus === 'success'
+              ? 'bg-green-600'
+              : 'bg-indigo-600 hover:bg-indigo-500'
+          }`}
+          title="Save the user prompt, AI response, and this diff to a markdown file for review"
+        >
+          {saveStatus === 'success' ? (
+            <>
+              <CheckIcon className="w-4 h-4" />
+              Saved!
+            </>
+          ) : (
+            <>
+              <SaveIcon className="w-4 h-4" />
+              Save Proposal
+            </>
+          )}
+        </button>
+      );
+      
       return (
         <div className="space-y-4">
           <div>{renderContent()}</div>
           {message.proposedChanges!.map((change, idx) => (
             <FileChangePreview key={idx} change={change} />
           ))}
-          <div className="flex justify-between items-center mt-4 pt-3 border-t border-gray-600/50">
-            <div className="flex-grow">
-              {!isHandled ? (
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleApply}
-                    className="bg-green-600 hover:bg-green-500 text-white font-bold py-1 px-3 rounded text-sm transition-colors"
-                  >
-                    Apply Changes
-                  </button>
-                  <button
-                    onClick={handleReject}
-                    className="bg-red-600 hover:bg-red-500 text-white font-bold py-1 px-3 rounded text-sm transition-colors"
-                  >
-                    Reject
-                  </button>
+          <div className="mt-4 pt-3 border-t border-gray-600/50">
+             {isHandled ? (
+                <div className="flex justify-between items-center">
+                    <p className={`text-sm font-semibold ${
+                        action === 'applied' ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                    { action === 'applied' ? 'Changes applied.' : 'Changes rejected.' }
+                    </p>
+                    {saveProposalButton}
                 </div>
               ) : (
-                <p className={`text-sm font-semibold ${
-                    action === 'applied' ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                  { action === 'applied' ? 'Changes applied.' : 'Changes rejected.' }
-                </p>
+                <div className="flex justify-between items-center">
+                    <div className="flex gap-2">
+                        <button
+                            onClick={handleApply}
+                            className="bg-green-600 hover:bg-green-500 text-white font-bold py-1 px-3 rounded text-sm transition-colors"
+                        >
+                            Apply Changes
+                        </button>
+                        <button
+                            onClick={handleReject}
+                            className="bg-red-600 hover:bg-red-500 text-white font-bold py-1 px-3 rounded text-sm transition-colors"
+                        >
+                            Reject
+                        </button>
+                    </div>
+                    {saveProposalButton}
+                </div>
               )}
-            </div>
-            
-            <button
-              onClick={handleSave}
-              disabled={saveStatus === 'success'}
-              className={`text-white font-bold py-1 px-3 rounded text-sm transition-colors flex items-center gap-1.5 disabled:opacity-75 ${
-                saveStatus === 'success' 
-                  ? 'bg-green-600' 
-                  : 'bg-indigo-600 hover:bg-indigo-500'
-              }`}
-              title="Save the user prompt, AI response, and this diff to a markdown file for review"
-            >
-              {saveStatus === 'success' ? (
-                <>
-                  <CheckIcon className="w-4 h-4" />
-                  Saved!
-                </>
-              ) : (
-                <>
-                  <SaveIcon className="w-4 h-4" />
-                  Save Proposal
-                </>
-              )}
-            </button>
           </div>
         </div>
       );
