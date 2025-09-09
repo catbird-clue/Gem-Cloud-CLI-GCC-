@@ -165,6 +165,71 @@ export const ChatInterface = ({ chatHistory, isLoading, onPromptSubmit, onApplyC
     URL.revokeObjectURL(url);
   };
 
+  const handleSaveProposal = (messageIndex: number) => {
+    const modelMessage = chatHistory[messageIndex];
+    if (!modelMessage || !modelMessage.proposedChanges) return;
+
+    let userMessage: ChatMessageType | null = null;
+    for (let i = messageIndex - 1; i >= 0; i--) {
+        if (chatHistory[i].role === 'user') {
+            userMessage = chatHistory[i];
+            break;
+        }
+    }
+
+    let markdownContent = `# AI Proposal for Review\n\n`;
+
+    if (userMessage) {
+        markdownContent += `## User Prompt\n\n`;
+        if (userMessage.attachments && userMessage.attachments.length > 0) {
+          markdownContent += '**Attachments:**\n';
+          userMessage.attachments.forEach(attachment => {
+            markdownContent += `- ${attachment.name}\n`;
+          });
+          markdownContent += '\n';
+        }
+        markdownContent += `> ${userMessage.content}\n\n`;
+    } else {
+        markdownContent += `## User Prompt\n\n> (Could not find the specific user prompt for this proposal.)\n\n`;
+    }
+
+    markdownContent += `## AI Response\n\n${modelMessage.content}\n\n`;
+
+    if (modelMessage.proposedChanges && modelMessage.proposedChanges.length > 0) {
+        markdownContent += `## Proposed File Changes\n\n`;
+        modelMessage.proposedChanges.forEach(change => {
+            markdownContent += `**File: \`${change.filePath}\`**\n\n`;
+            markdownContent += '```diff\n';
+            const diffResult = diffLines(change.oldContent, change.newContent);
+            diffResult.forEach(part => {
+                const lines = part.value.split('\n').filter(Boolean);
+                if (part.added) {
+                    lines.forEach(line => { markdownContent += `+ ${line}\n`; });
+                } else if (part.removed) {
+                    lines.forEach(line => { markdownContent += `- ${line}\n`; });
+                } else {
+                    lines.forEach(line => { markdownContent += `  ${line}\n`; });
+                }
+            });
+            markdownContent += '```\n\n';
+        });
+    }
+
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
+    const filename = `proposal-for-review-${timestamp}.md`;
+
+    const blob = new Blob([markdownContent], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const handleAttachClick = () => {
     fileInputRef.current?.click();
   };
@@ -249,16 +314,21 @@ export const ChatInterface = ({ chatHistory, isLoading, onPromptSubmit, onApplyC
         {chatHistory.map((message, index) => (
             <ChatMessage
               key={index}
+              index={index}
               message={message}
               onApplyChanges={onApplyChanges}
+              onSaveProposal={handleSaveProposal}
             />
           )
         )}
         {isLoading && (
           <ChatMessage
+            // Fix: Add missing 'index' prop for the loading state message.
+            index={chatHistory.length}
             message={{ role: 'model', content: '' }}
             isLoading={true}
             onApplyChanges={() => {}}
+            onSaveProposal={() => {}}
           />
         )}
         <div ref={messagesEndRef} />

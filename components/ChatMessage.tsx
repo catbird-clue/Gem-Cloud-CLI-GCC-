@@ -1,18 +1,21 @@
 import React, { useState, memo } from 'react';
-import { GeminiIcon, WarningIcon, FileIcon } from './Icons';
+import { GeminiIcon, WarningIcon, FileIcon, SaveIcon, CheckIcon } from './Icons';
 import type { ChatMessage as ChatMessageType, ProposedChange } from '../types';
 import { FileChangePreview } from './FileChangePreview';
 
 interface ChatMessageProps {
   message: ChatMessageType;
+  index: number;
   isLoading?: boolean;
   onApplyChanges: (changes: ProposedChange[]) => void;
+  onSaveProposal: (messageIndex: number) => void;
 }
 
-export const ChatMessage = memo(({ message, isLoading = false, onApplyChanges }: ChatMessageProps): React.ReactElement => {
+export const ChatMessage = memo(({ message, index, isLoading = false, onApplyChanges, onSaveProposal }: ChatMessageProps): React.ReactElement => {
   const isModel = message.role === 'model';
   const [isHandled, setIsHandled] = useState(false);
   const [action, setAction] = useState<'applied' | 'rejected' | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'success'>('idle');
   
   const hasProposedChanges = message.proposedChanges && message.proposedChanges.length > 0;
 
@@ -27,6 +30,16 @@ export const ChatMessage = memo(({ message, isLoading = false, onApplyChanges }:
   const handleReject = () => {
     setIsHandled(true);
     setAction('rejected');
+  };
+
+  const handleSave = () => {
+    if (hasProposedChanges) {
+      onSaveProposal(index);
+      setSaveStatus('success');
+      setTimeout(() => {
+        setSaveStatus('idle');
+      }, 2000); // Revert button state after 2 seconds
+    }
   };
 
   const renderContent = () => {
@@ -92,6 +105,28 @@ export const ChatMessage = memo(({ message, isLoading = false, onApplyChanges }:
                 Apply Changes
               </button>
               <button
+                onClick={handleSave}
+                disabled={saveStatus === 'success'}
+                className={`text-white font-bold py-1 px-3 rounded text-sm transition-colors flex items-center gap-1.5 disabled:opacity-75 ${
+                  saveStatus === 'success' 
+                    ? 'bg-green-600' 
+                    : 'bg-indigo-600 hover:bg-indigo-500'
+                }`}
+                title="Save the user prompt, AI response, and this diff to a markdown file for review"
+              >
+                {saveStatus === 'success' ? (
+                  <>
+                    <CheckIcon className="w-4 h-4" />
+                    Saved!
+                  </>
+                ) : (
+                  <>
+                    <SaveIcon className="w-4 h-4" />
+                    Save Proposal
+                  </>
+                )}
+              </button>
+              <button
                 onClick={handleReject}
                 className="bg-red-600 hover:bg-red-500 text-white font-bold py-1 px-3 rounded text-sm transition-colors"
               >
@@ -99,8 +134,10 @@ export const ChatMessage = memo(({ message, isLoading = false, onApplyChanges }:
               </button>
             </div>
           ) : (
-            <p className={`text-sm font-semibold mt-4 pt-3 border-t border-gray-600/50 ${action === 'applied' ? 'text-green-400' : 'text-red-400'}`}>
-              {action === 'applied' ? 'Changes applied.' : 'Changes rejected.'}
+            <p className={`text-sm font-semibold mt-4 pt-3 border-t border-gray-600/50 ${
+                action === 'applied' ? 'text-green-400' : 'text-red-400'
+              }`}>
+              { action === 'applied' ? 'Changes applied.' : 'Changes rejected.' }
             </p>
           )}
         </div>
