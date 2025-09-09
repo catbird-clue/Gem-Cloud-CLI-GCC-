@@ -117,6 +117,8 @@ export const ChatInterface = ({ chatHistory, isLoading, onPromptSubmit, onApplyC
       let content = `## ${message.role === 'user' ? 'You' : 'Gemini'}\n\n`;
       if (message.error) {
         content += `**Error:**\n\n\`\`\`\n${message.error}\n\`\`\`\n`;
+      } else if (message.warning) {
+        content += `**Warning:**\n\n\`\`\`\n${message.warning}\n\`\`\`\n`;
       } else {
         content += message.content;
       }
@@ -135,7 +137,7 @@ export const ChatInterface = ({ chatHistory, isLoading, onPromptSubmit, onApplyC
           content += '```diff\n';
           const diffResult = diffLines(change.oldContent, change.newContent);
           diffResult.forEach(part => {
-            const lines = part.value.split('\n').filter(Boolean);
+            const lines = part.value.replace(/\n$/, '').split('\n');
             if (part.added) {
               lines.forEach(line => { content += `+ ${line}\n`; });
             } else if (part.removed) {
@@ -169,51 +171,60 @@ export const ChatInterface = ({ chatHistory, isLoading, onPromptSubmit, onApplyC
     const modelMessage = chatHistory[messageIndex];
     if (!modelMessage || !modelMessage.proposedChanges) return;
 
-    let userMessage: ChatMessageType | null = null;
+    // Find the index of the last message with a proposal before the current one.
+    let startIndex = 0;
     for (let i = messageIndex - 1; i >= 0; i--) {
-        if (chatHistory[i].role === 'user') {
-            userMessage = chatHistory[i];
-            break;
-        }
+      if (chatHistory[i].proposedChanges && chatHistory[i].proposedChanges.length > 0) {
+        startIndex = i + 1;
+        break;
+      }
     }
 
-    let markdownContent = `# AI Proposal for Review\n\n`;
+    // Get the slice of conversation that led to this proposal.
+    const conversationSlice = chatHistory.slice(startIndex, messageIndex + 1);
 
-    if (userMessage) {
-        markdownContent += `## User Prompt\n\n`;
-        if (userMessage.attachments && userMessage.attachments.length > 0) {
-          markdownContent += '**Attachments:**\n';
-          userMessage.attachments.forEach(attachment => {
-            markdownContent += `- ${attachment.name}\n`;
-          });
-          markdownContent += '\n';
-        }
-        markdownContent += `> ${userMessage.content}\n\n`;
-    } else {
-        markdownContent += `## User Prompt\n\n> (Could not find the specific user prompt for this proposal.)\n\n`;
-    }
-
-    markdownContent += `## AI Response\n\n${modelMessage.content}\n\n`;
-
-    if (modelMessage.proposedChanges && modelMessage.proposedChanges.length > 0) {
-        markdownContent += `## Proposed File Changes\n\n`;
-        modelMessage.proposedChanges.forEach(change => {
-            markdownContent += `**File: \`${change.filePath}\`**\n\n`;
-            markdownContent += '```diff\n';
-            const diffResult = diffLines(change.oldContent, change.newContent);
-            diffResult.forEach(part => {
-                const lines = part.value.split('\n').filter(Boolean);
-                if (part.added) {
-                    lines.forEach(line => { markdownContent += `+ ${line}\n`; });
-                } else if (part.removed) {
-                    lines.forEach(line => { markdownContent += `- ${line}\n`; });
-                } else {
-                    lines.forEach(line => { markdownContent += `  ${line}\n`; });
-                }
-            });
-            markdownContent += '```\n\n';
+    let markdownBody = conversationSlice.map(message => {
+      let content = `## ${message.role === 'user' ? 'You' : 'Gemini'}\n\n`;
+      
+      if (message.error) {
+        content += `**Error:**\n\n\`\`\`\n${message.error}\n\`\`\`\n\n`;
+      } else if (message.warning) {
+        content += `**Warning:**\n\n\`\`\`\n${message.warning}\n\`\`\`\n\n`;
+      } else if (message.content) {
+        content += message.content + '\n\n';
+      }
+      
+      if (message.attachments && message.attachments.length > 0) {
+        content += '**Attachments:**\n';
+        message.attachments.forEach(attachment => {
+          content += `- ${attachment.name}\n`;
         });
-    }
+        content += '\n';
+      }
+
+      if (message.proposedChanges && message.proposedChanges.length > 0) {
+        content += '### Proposed File Changes\n\n';
+        message.proposedChanges.forEach(change => {
+          content += `**File: \`${change.filePath}\`**\n\n`;
+          content += '```diff\n';
+          const diffResult = diffLines(change.oldContent, change.newContent);
+          diffResult.forEach(part => {
+            const lines = part.value.replace(/\n$/, '').split('\n');
+            if (part.added) {
+              lines.forEach(line => { content += `+ ${line}\n`; });
+            } else if (part.removed) {
+              lines.forEach(line => { content += `- ${line}\n`; });
+            } else {
+              lines.forEach(line => { content += `  ${line}\n`; });
+            }
+          });
+          content += '```\n\n';
+        });
+      }
+      return content.trim();
+    }).join('\n\n---\n\n');
+
+    const markdownContent = `# AI Proposal for Review\n\n${markdownBody}`;
 
     const now = new Date();
     const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
